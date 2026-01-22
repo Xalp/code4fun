@@ -23,6 +23,10 @@ def get_model(
     Returns:
         transformers.PreTrainedModel
     """
+    # Lazy imports for local model classes (to avoid circular imports)
+    from dllm.pipelines.llada.models.modeling_llada import LLaDAModelLM
+    from dllm.pipelines.llada.models.configuration_llada import LLaDAConfig
+
     model_name_or_path = getattr(model_args, "model_name_or_path")
     dtype = getattr(model_args, "dtype", "bfloat16")
     load_in_4bit = getattr(model_args, "load_in_4bit", False)
@@ -45,29 +49,42 @@ def get_model(
             bnb_4bit_quant_type="nf4",
         )
 
-    # Load config if not provided, and enable flash_attention for LLaDA models
+    # Load config if not provided
     if config is None:
         config = transformers.AutoConfig.from_pretrained(
             model_name_or_path, trust_remote_code=True
         )
+
+    # Enable flash_attention for LLaDA models
     if hasattr(config, "flash_attention"):
         config.flash_attention = True
 
     params = {
-        "torch_dtype": dtype,  # transformers uses torch_dtype, not dtype
+        "torch_dtype": dtype,
         "device_map": device_map,
         "quantization_config": quant_config,
         "attn_implementation": attn_implementation,
         "config": config,
-        "trust_remote_code": True,
     }
 
-    try:
-        model = transformers.AutoModelForMaskedLM.from_pretrained(
-            model_name_or_path, **params
-        )
-    except Exception:
-        model = transformers.AutoModel.from_pretrained(model_name_or_path, **params)
+    # Check if this is a LLaDA model - use our LOCAL model class (which supports KV cache)
+    # instead of trust_remote_code which loads the HuggingFace version without KV cache support
+    is_llada = isinstance(config, LLaDAConfig) or (
+        hasattr(config, "model_type") and "llada" in config.model_type.lower()
+    )
+
+    if is_llada:
+        # Use local LLaDAModelLM which has KV cache support
+        model = LLaDAModelLM.from_pretrained(model_name_or_path, **params)
+    else:
+        # For other models, use AutoModel with trust_remote_code
+        params["trust_remote_code"] = True
+        try:
+            model = transformers.AutoModelForMaskedLM.from_pretrained(
+                model_name_or_path, **params
+            )
+        except Exception:
+            model = transformers.AutoModel.from_pretrained(model_name_or_path, **params)
 
     # --- if quantized, prepare for LoRA / QLoRA training ---
     if load_in_4bit and quant_config is not None:
