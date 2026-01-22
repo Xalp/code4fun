@@ -13,14 +13,13 @@ def add_gumbel_noise(logits, temperature):
     The Gumbel max is a method for sampling categorical distributions.
     According to arXiv:2409.02908, for MDM, low-precision Gumbel Max improves perplexity score but reduces generation quality.
     Thus, we use float64.
-    
-    Memory-optimized version: uses in-place operations where possible.
     '''
+    if temperature == 0:
+        return logits
     logits = logits.to(torch.float64)
     noise = torch.rand_like(logits, dtype=torch.float64)
     gumbel_noise = (- torch.log(noise)) ** temperature
     return logits.exp() / gumbel_noise
-
 
 def get_num_transfer_tokens(mask_index, steps):
     '''
@@ -222,16 +221,9 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
 
         tps = block_length // i # tokens_per_step
         print(f"num_block: {num_block+1}, block length: {block_length}, diffusion steps: {i}, tokens/step: {tps}, num_particles: {num_particles}")
-        
-        # Clear CUDA cache to prevent memory fragmentation
-        torch.cuda.empty_cache()
-        
     print(logp[:, prompt.shape[1]:].exp().mean(dim=1))
     idx = torch.argmax(logp.sum(dim=1))
     return x[idx:idx+1], nfe
-
-def categorical_sampling(logits):
-    return torch.distributions.Categorical(logits=logits).sample()
 
 def get_transfer_index(logits, temperature, remasking, mask_index, x, num_transfer_tokens, threshold=None):
     logits_with_noise = add_gumbel_noise(logits, temperature=temperature)
