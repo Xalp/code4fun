@@ -83,6 +83,7 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
             )
             
             # generated_ids is (1, total_len) because generate_smc returns best particle
+            # Match eval_llada.py logic: Decode with special tokens, split, re-encode, decode without special tokens
             generated_answer = self.tokenizer.decode(
                 generated_ids[0][prompt.shape[1] :], skip_special_tokens=False
             )
