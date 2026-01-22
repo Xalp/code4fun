@@ -29,8 +29,23 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
     ):
         super().__init__(config, **kwargs)
         self.num_particles = int(kwargs.get("num_particles", 4))
-        if config and hasattr(config, "num_particles"):
-            self.num_particles = config.num_particles
+        self.threshold = kwargs.get("threshold", None)
+        self.factor = kwargs.get("factor", None)
+        self.use_smc = kwargs.get("use_smc", True)
+
+        if config:
+            if hasattr(config, "num_particles"): self.num_particles = config.num_particles
+            if hasattr(config, "threshold"): self.threshold = config.threshold
+            if hasattr(config, "factor"): self.factor = config.factor
+            if hasattr(config, "use_smc"): self.use_smc = config.use_smc
+        
+        if str(self.use_smc).lower() == "false":
+            self.num_particles = 1
+        
+        if self.threshold is not None:
+            self.threshold = float(self.threshold)
+        if self.factor is not None:
+             self.factor = float(self.factor)
 
     def generate_until(self, requests: list[Instance]) -> list[str]:
         """Generate greedily until a stopping sequence, using SMC"""
@@ -60,6 +75,8 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
                 temperature=self.temperature, 
                 remasking=self.remasking,
                 num_particles=self.num_particles,
+                threshold=self.threshold,
+                factor=self.factor,
                 mask_id=126336 # LLaDA default
             )
             
@@ -92,8 +109,23 @@ class DreamSMC_EvalHarness(DreamEvalHarness):
     ):
         super().__init__(config, **kwargs)
         self.num_particles = int(kwargs.get("num_particles", 4))
-        if config and hasattr(config, "num_particles"):
-            self.num_particles = config.num_particles
+        self.threshold = kwargs.get("threshold", None)
+        self.factor = kwargs.get("factor", None)
+        self.use_smc = kwargs.get("use_smc", True)
+
+        if config:
+            if hasattr(config, "num_particles"): self.num_particles = config.num_particles
+            if hasattr(config, "threshold"): self.threshold = config.threshold
+            if hasattr(config, "factor"): self.factor = config.factor
+            if hasattr(config, "use_smc"): self.use_smc = config.use_smc
+        
+        if str(self.use_smc).lower() == "false":
+            self.num_particles = 1
+
+        if self.threshold is not None:
+            self.threshold = float(self.threshold)
+        if self.factor is not None:
+             self.factor = float(self.factor)
 
     def generate_until(self, requests: list[Instance]) -> list[str]:
         """Generate greedily until a stopping sequence, using SMC for Dream"""
@@ -137,6 +169,8 @@ class DreamSMC_EvalHarness(DreamEvalHarness):
                 temperature=self.temperature, 
                 remasking='low_confidence', # Dream default usually? Or from config?
                 num_particles=self.num_particles,
+                threshold=self.threshold,
+                factor=self.factor,
                 mask_id=self.tokenizer.mask_token_id
             )
             

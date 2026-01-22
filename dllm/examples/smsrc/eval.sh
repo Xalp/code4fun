@@ -9,13 +9,21 @@ export TORCH_NCCL_ASYNC_ERROR_HANDLING=1    # Enable async error handling for mu
 export NCCL_DEBUG=warn                      # Show NCCL warnings for better diagnosis without flooding logs
 export TORCH_DISTRIBUTED_DEBUG=DETAIL       # Provide detailed logging for PyTorch distributed debugging
 
-# ===== Input Arguments =====
+# ===== Default Configuration Variables =====
+# These can be overridden by command line arguments
+length=256
+steps=256
+block_length=256
+num_particles=4
+confidence_threshold="" # Set to a float (e.g. 0.9) to enable validity check
+use_smc=true
 model_type="llada"
 model_name_or_path=""
 instruct=true
 num_gpu=8
-num_particles=4
+limit=""
 
+# ===== Argument Parsing =====
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --model_type)
@@ -30,6 +38,16 @@ while [[ $# -gt 0 ]]; do
       num_particles="$2"; shift 2 ;;
     --limit)
       limit="$2"; shift 2 ;;
+    --length)
+      length="$2"; shift 2 ;;
+    --steps)
+      steps="$2"; shift 2 ;;
+    --block_length)
+      block_length="$2"; shift 2 ;;
+    --confidence_threshold)
+      confidence_threshold="$2"; shift 2 ;;
+    --use_smc)
+      use_smc="$2"; shift 2 ;;
     *) 
       echo "Error: Unknown argument: $1"; exit 1 ;;
   esac
@@ -47,10 +65,12 @@ if [ -z "$model_name_or_path" ]; then
     fi
 fi
 
-echo ">>> Running SMC Eval for model type: ${model_type}, path: ${model_name_or_path}"
-echo ">>> Particles: ${num_particles}, Instruct: ${instruct}"
+echo ">>> Running SMC Eval"
+echo "    Model: ${model_type} (${model_name_or_path})"
+echo "    SMC Config: particles=${num_particles}, use_smc=${use_smc}, threshold=${confidence_threshold}"
+echo "    Gen Config: length=${length}, steps=${steps}, block=${block_length}"
 
-# Common args
+# Construct model_args string
 # Note: we use ${model_type}_smc which must be registered in eval.py
 common_args="--model ${model_type}_smc"
 if [ "$instruct" = "true" ]; then
@@ -58,6 +78,13 @@ if [ "$instruct" = "true" ]; then
 fi
 if [ -n "$limit" ]; then
     common_args="$common_args --limit $limit"
+fi
+
+# Base model_args passed to generic tasks
+base_model_args="pretrained=${model_name_or_path},max_new_tokens=${length},steps=${steps},block_length=${block_length},num_particles=${num_particles},use_smc=${use_smc}"
+
+if [ -n "$confidence_threshold" ]; then
+    base_model_args="${base_model_args},threshold=${confidence_threshold}"
 fi
 
 # Define Python command
@@ -70,81 +97,75 @@ CMD="python -m accelerate.commands.launch --num_processes ${num_gpu} dllm/exampl
 if [ "$instruct" = "true" ]; then
     # Instruct Tasks
     
-    # 1. MMLU Generative Dream (if supported by dream harness or generic)
-    # LLaDA might not support 'alg=entropy' etc in model_args unless passed down?
-    # But generate_smc doesn't use 'alg'. It uses temperature.
-    # We pass args but generate_smc might ignore some. 
-    # Key is keeping args compatible.
-    
     $CMD --tasks mmlu_generative_dream --num_fewshot 4 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=128,steps=128,temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False,num_particles=${num_particles}"
+        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     $CMD --tasks mmlu_pro --num_fewshot 4 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=128,steps=128,temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False,num_particles=${num_particles}"
+        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     $CMD --tasks gsm8k_cot --num_fewshot 0 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=256,steps=256,temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False,num_particles=${num_particles}"
+        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     # REPLACED minerva_math with math500
     $CMD --tasks math500 --num_fewshot 0 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=512,steps=512,temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False,num_particles=${num_particles}"
+        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     $CMD --tasks gpqa_main_n_shot --num_fewshot 5 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},mc_num=32,num_particles=${num_particles}"
+        --model_args "${base_model_args},mc_num=32"
 
     $CMD --tasks humaneval_instruct_dream --num_fewshot 0 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=768,steps=768,temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False,num_particles=${num_particles}" \
+        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False" \
         --confirm_run_unsafe_code
 
     $CMD --tasks mbpp_instruct_dream --num_fewshot 0 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=1024,steps=1024,temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False,num_particles=${num_particles}" \
+        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False" \
         --confirm_run_unsafe_code
 
     $CMD --tasks ifeval --num_fewshot 0 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=1280,steps=1280,temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False,num_particles=${num_particles}"
+        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
 else
     # Base Tasks
     
     $CMD --tasks humaneval --num_fewshot 0 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=512,steps=512,temperature=0.2,top_p=0.95,add_bos_token=True,escape_until=False,num_particles=${num_particles}" \
+        --model_args "${base_model_args},temperature=0.2,top_p=0.95,add_bos_token=True,escape_until=False" \
         --confirm_run_unsafe_code
 
     $CMD --tasks gsm8k_cot --num_fewshot 8 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=256,steps=256,temperature=0.0,top_p=0.95,add_bos_token=True,escape_until=False,num_particles=${num_particles}"
+        --model_args "${base_model_args},temperature=0.0,top_p=0.95,add_bos_token=True,escape_until=False"
 
     $CMD --tasks mbpp --num_fewshot 3 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=512,steps=512,temperature=0.2,top_p=0.95,add_bos_token=True,escape_until=False,num_particles=${num_particles}" \
+        --model_args "${base_model_args},temperature=0.2,top_p=0.95,add_bos_token=True,escape_until=False" \
         --confirm_run_unsafe_code
 
     # REPLACED minerva_math with math500
     $CMD --tasks math500 --num_fewshot 4 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=512,steps=512,temperature=0.0,top_p=0.95,add_bos_token=True,escape_until=False,num_particles=${num_particles}"
+        --model_args "${base_model_args},temperature=0.0,top_p=0.95,add_bos_token=True,escape_until=False"
 
     $CMD --tasks bbh --num_fewshot 3 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},max_new_tokens=512,steps=512,temperature=0.0,top_p=0.95,add_bos_token=True,escape_until=False,num_particles=${num_particles}"
+        --model_args "${base_model_args},temperature=0.0,top_p=0.95,add_bos_token=True,escape_until=False"
 
     $CMD --tasks mmlu --num_fewshot 5 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},add_bos_token=True,num_particles=${num_particles}"
+        --model_args "${base_model_args},add_bos_token=True"
 
     $CMD --tasks arc_easy --num_fewshot 0 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},add_bos_token=True,num_particles=${num_particles}"
+        --model_args "${base_model_args},add_bos_token=True"
 
     $CMD --tasks arc_challenge --num_fewshot 0 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},add_bos_token=True,num_particles=${num_particles}"
+        --model_args "${base_model_args},add_bos_token=True"
 
     $CMD --tasks hellaswag --num_fewshot 0 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},add_bos_token=True,num_particles=${num_particles}"
+        --model_args "${base_model_args},add_bos_token=True"
 
     $CMD --tasks piqa --num_fewshot 0 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},add_bos_token=True,num_particles=${num_particles}"
+        --model_args "${base_model_args},add_bos_token=True"
 
     $CMD --tasks gpqa_main_n_shot --num_fewshot 5 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},add_bos_token=True,num_particles=${num_particles}"
+        --model_args "${base_model_args},add_bos_token=True"
 
     $CMD --tasks winogrande --num_fewshot 5 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},add_bos_token=True,num_particles=${num_particles}"
+        --model_args "${base_model_args},add_bos_token=True"
 
     $CMD --tasks race --num_fewshot 0 ${common_args} \
-        --model_args "pretrained=${model_name_or_path},add_bos_token=True,num_particles=${num_particles}"
+        --model_args "${base_model_args},add_bos_token=True"
 fi
