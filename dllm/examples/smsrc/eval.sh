@@ -14,6 +14,7 @@ export TORCH_DISTRIBUTED_DEBUG=DETAIL       # Provide detailed logging for PyTor
 length=256
 steps=256
 block_size=32
+temperature=0.1
 num_particles=4
 confidence_threshold="0.9" # Set to a float (e.g. 0.9) to enable validity check
 use_smc=true
@@ -48,6 +49,8 @@ while [[ $# -gt 0 ]]; do
       confidence_threshold="$2"; shift 2 ;;
     --use_smc)
       use_smc="$2"; shift 2 ;;
+    --temperature)
+      temperature="$2"; shift 2 ;;
     *) 
       echo "Error: Unknown argument: $1"; exit 1 ;;
   esac
@@ -68,7 +71,7 @@ fi
 echo ">>> Running SMC Eval"
 echo "    Model: ${model_type} (${model_name_or_path})"
 echo "    SMC Config: particles=${num_particles}, use_smc=${use_smc}, threshold=${confidence_threshold}"
-echo "    Gen Config: length=${length}, steps=${steps}, block=${block_size}"
+echo "    Gen Config: length=${length}, steps=${steps}, block=${block_size}, temp=${temperature}"
 
 # Construct model_args string
 # Note: we use ${model_type}_smc which must be registered in eval.py
@@ -98,31 +101,31 @@ if [ "$instruct" = "true" ]; then
     # Instruct Tasks
     
     # $CMD --tasks mmlu_generative_dream --num_fewshot 4 ${common_args} \
-    #     --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
+    #     --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     # $CMD --tasks mmlu_pro --num_fewshot 4 ${common_args} \
-    #     --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
+    #     --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     $CMD --tasks gsm8k_cot --num_fewshot 0 ${common_args} \
-        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
+        --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     # REPLACED minerva_math with math500
     $CMD --tasks math500 --num_fewshot 0 ${common_args} \
-        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
+        --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     # $CMD --tasks gpqa_main_n_shot --num_fewshot 5 ${common_args} \
     #     --model_args "${base_model_args},mc_num=32"
 
     $CMD --tasks humaneval_instruct_dream --num_fewshot 0 ${common_args} \
-        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False" \
+        --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False" \
         --confirm_run_unsafe_code
 
     $CMD --tasks mbpp_instruct_dream --num_fewshot 0 ${common_args} \
-        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False" \
+        --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False" \
         --confirm_run_unsafe_code
 
     $CMD --tasks ifeval --num_fewshot 0 ${common_args} \
-        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
+        --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
 else
     # Base Tasks
