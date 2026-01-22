@@ -13,9 +13,9 @@ export TORCH_DISTRIBUTED_DEBUG=DETAIL       # Provide detailed logging for PyTor
 # These can be overridden by command line arguments
 length=256
 steps=256
-block_length=256
+block_length=32
 num_particles=4
-confidence_threshold="" # Set to a float (e.g. 0.9) to enable validity check
+confidence_threshold="0.9" # Set to a float (e.g. 0.9) to enable validity check
 use_smc=true
 model_type="llada"
 model_name_or_path=""
