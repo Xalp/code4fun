@@ -60,12 +60,17 @@ def get_model(
         "trust_remote_code": True,
     }
 
-    try:
-        model = transformers.AutoModelForMaskedLM.from_pretrained(
-            model_name_or_path, **params
-        )
-    except Exception:
-        model = transformers.AutoModel.from_pretrained(model_name_or_path, **params)
+    # Use local LLaDAModelLM for LLaDA models (supports kv-cache and flash attention)
+    if hasattr(config, "flash_attention"):
+        from dllm.pipelines.llada.models.modeling_llada import LLaDAModelLM
+        model = LLaDAModelLM.from_pretrained(model_name_or_path, **params)
+    else:
+        try:
+            model = transformers.AutoModelForMaskedLM.from_pretrained(
+                model_name_or_path, **params
+            )
+        except Exception:
+            model = transformers.AutoModel.from_pretrained(model_name_or_path, **params)
 
     # --- if quantized, prepare for LoRA / QLoRA training ---
     if load_in_4bit and quant_config is not None:
