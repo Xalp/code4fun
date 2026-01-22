@@ -45,6 +45,12 @@ def get_model(
             bnb_4bit_quant_type="nf4",
         )
 
+    # Load config and enable flash attention for LLaDA models
+    if config is None:
+        config = transformers.AutoConfig.from_pretrained(model_name_or_path)
+    if hasattr(config, "flash_attention"):
+        config.flash_attention = True
+
     params = {
         "dtype": dtype,
         "device_map": device_map,
