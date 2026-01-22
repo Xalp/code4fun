@@ -20,7 +20,11 @@ from typing import (
 )
 from dataclasses import fields
 from typing import List, Optional, Tuple, Union
-
+try:
+    from torch.nn.attention.flex_attention import flex_attention, create_block_mask
+    FLEX_ATTN_AVAILABLE = True
+except:
+    FLEX_ATTN_AVAILABLE = False
 import torch
 import torch.backends.cuda
 import torch.nn as nn
@@ -70,6 +74,9 @@ __all__ = [
 
 log = logging.getLogger(__name__)
 
+@torch.compile()
+def scaled_dot_product_attention(q, k, v, mask=None, attn_mask=None, dropout_p=0.0, is_causal=False):
+    return F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal)
 
 class ModuleType(StrEnum):
     in_module = "in"
@@ -408,7 +415,7 @@ class RotaryEmbedding(nn.Module):
     def apply_rotary_pos_emb(self, pos_sin: torch.Tensor, pos_cos: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         return ((t * pos_cos) + (self.rotate_half(t) * pos_sin)).to(t.dtype)
 
-    def forward(self, q: torch.Tensor, k: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, q: torch.Tensor, k: torch.Tensor, block_end_index: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.config.rope_full_precision:
             q_, k_ = q.float(), k.float()
         else:
@@ -419,11 +426,18 @@ class RotaryEmbedding(nn.Module):
             pos_sin, pos_cos = self.get_rotary_embedding(key_len, q_.device)
             pos_sin = pos_sin.type_as(q_)
             pos_cos = pos_cos.type_as(q_)
-            q_ = self.apply_rotary_pos_emb(
-                pos_sin[:, :, key_len - query_len : key_len, :],
-                pos_cos[:, :, key_len - query_len : key_len, :],
-                q_,
-            )
+            if block_end_index is None:
+                q_ = self.apply_rotary_pos_emb(
+                    pos_sin[:, :, key_len - query_len : key_len, :],
+                    pos_cos[:, :, key_len - query_len : key_len, :],
+                    q_,
+                )
+            else:
+                q_ = self.apply_rotary_pos_emb(
+                    pos_sin[:, :, block_end_index.item() - query_len : block_end_index.item(), :],
+                    pos_cos[:, :, block_end_index.item() - query_len : block_end_index.item(), :],
+                    q_,
+                )
             k_ = self.apply_rotary_pos_emb(pos_sin, pos_cos, k_)
         return q_.type_as(q), k_.type_as(k)
 
@@ -649,8 +663,8 @@ class LLaDABlock(nn.Module):
                 k = k.repeat_interleave(num_q_heads // num_kv_heads, dim=1, output_size=num_q_heads)
                 v = v.repeat_interleave(num_q_heads // num_kv_heads, dim=1, output_size=num_q_heads)
 
-            # Modify: MDM set causal to False.
-            return F.scaled_dot_product_attention(
+            # Modify: MDM set causal to False, and with no attn_mask.
+            return scaled_dot_product_attention(
                 q,
                 k,
                 v,
@@ -664,37 +678,64 @@ class LLaDABlock(nn.Module):
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
         attention_bias: Optional[torch.Tensor] = None,
         layer_past: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         use_cache: bool = False,
+        replace_position: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         B, T, C = q.size()  # batch size, sequence length, d_model
         dtype = k.dtype
 
         # Optionally apply layer norm to keys and queries.
-        if self.q_norm is not None and self.k_norm is not None:
+        if self.q_norm is not None and self.k_norm is not None: #self.q_norm: None, self.k_norm: None
             q = self.q_norm(q).to(dtype=dtype)
             k = self.k_norm(k).to(dtype=dtype)
 
         # Move head forward to be next to the batch dim.
         # shape: (B, nh, T, hs)
+        # self.config.n_heads: 32
         q = q.view(B, T, self.config.n_heads, C // self.config.n_heads).transpose(1, 2)
         # shape: (B, n_kv_h, T, hs)
         k = k.view(B, T, self.config.effective_n_kv_heads, C // self.config.n_heads).transpose(1, 2)
         # shape: (B, n_kv_h, T, hs)
         v = v.view(B, T, self.config.effective_n_kv_heads, C // self.config.n_heads).transpose(1, 2)
 
-        if layer_past is not None:
+        if layer_past is not None: 
             past_key, past_value = layer_past
-            k = torch.cat((past_key, k), dim=-2)
-            v = torch.cat((past_value, v), dim=-2)
+            if replace_position is None:
+                k = torch.cat((past_key, k), dim=-2)
+                v = torch.cat((past_value, v), dim=-2)
+            else:
+                # k shape is [B, n_kv_h, selected_length, hs]
+                # replace_position shape is [B, L], where L contains 0s and 1s, 0 means no replacement, 1 means replace, with selected_length number of 1s
+                # past_key shape is [B, n_kv_h, L, hs]
+                # Replace selected_length number of 1s in past_key with k
+                
+                # Handle batched replace_position correctly
+                B = replace_position.shape[0]
+                for batch_idx in range(B):
+                    # Get indices for this batch
+                    batch_replace_indices = replace_position[batch_idx].nonzero(as_tuple=True)[0]
+                    if len(batch_replace_indices) > 0:
+                        # Replace positions in past_key and past_value for this batch
+                        past_key[batch_idx, :, batch_replace_indices] = k[batch_idx, :, :len(batch_replace_indices)]
+                        past_value[batch_idx, :, batch_replace_indices] = v[batch_idx, :, :len(batch_replace_indices)]
+                
+                k = past_key
+                v = past_value
 
-        present = (k, v) if use_cache else None
+        present = (k, v) if use_cache else None #present: None
         query_len, key_len = q.shape[-2], k.shape[-2]  # could be different if layer_past not None
 
         if self.config.rope:
             # Apply rotary embeddings.
-            q, k = self.rotary_emb(q, k)
+            if replace_position is None:
+                q, k = self.rotary_emb(q, k)
+            else:
+                # For batched replace_position, use the maximum position across all batches
+                max_replace_pos = replace_position.nonzero(as_tuple=True)[1].max() + 1 if replace_position.any() else key_len
+                q, k = self.rotary_emb(q, k, max_replace_pos)
 
         if attention_bias is not None:
             # Resize and cast attention bias.
@@ -882,6 +923,117 @@ class LLaDALlamaBlock(LLaDABlock):
         init_weights(self.config, self.v_proj, d=self.config.d_model, layer_id=None)
         init_weights(self.config, self.ff_proj, d=self.config.d_model, layer_id=None)
         init_weights(self.config, self.up_proj, d=self.config.d_model, layer_id=None)  # new add
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        attention_bias: Optional[torch.Tensor] = None,
+        layer_past: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        use_cache: bool = False,
+        replace_position: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
+        # Get query, key, value projections.
+        # shape:
+        #  - for regular attn q, k, v: (batch_size, seq_len, d_model)
+        #  - for multi-query attn q: (batch_size, seq_len, d_model)
+        #                      k, v: (batch_size, seq_len, d_model // n_heads)
+        #  - for group query attn q: (batch_size, seq_len, d_model)
+        #                      k, v: (batch_size, seq_len, d_model // n_kv_heads)
+        x_normed = self.attn_norm(x) #x:torch.Size([2, 168, 4096])
+        q = self.q_proj(x_normed) #q:torch.Size([2, 168, 4096])
+        k = self.k_proj(x_normed) #k:torch.Size([2, 168, 4096])
+        v = self.v_proj(x_normed) #v:torch.Size([2, 168, 4096])
+        # attention_bias: None
+        # layer_past: None
+        # use_cache: False
+        # Get attention scores.
+        if self._activation_checkpoint_fn is not None:
+            att, cache = self._activation_checkpoint_fn(  # type: ignore
+                self.attention, q, k, v, attention_bias, layer_past=layer_past, use_cache=use_cache,replace_position=replace_position
+            )
+        else:
+            att, cache = self.attention(q, k, v, attention_bias, layer_past=layer_past, use_cache=use_cache,replace_position=replace_position)
+
+        # Add attention scores.
+        # shape: (B, T, C)
+        x = x + self.dropout(att)
+
+        # Add feed-forward projection.
+        # shape: (batch_size, seq_len, d_model)
+        og_x = x
+        if self._activation_checkpoint_fn is not None:
+            x = self._activation_checkpoint_fn(self.ff_norm, x)  # type: ignore
+        else:
+            x = self.ff_norm(x)
+        x, x_up = self.ff_proj(x), self.up_proj(x) # new add
+        if self._activation_checkpoint_fn is not None:
+            x = self._activation_checkpoint_fn(self.act, x)  # type: ignore
+        else:
+            x = self.act(x)
+        x = x * x_up # new add
+        x = self.ff_out(x)
+        x = self.dropout(x)
+        x = og_x + x
+
+        return x, cache
+
+
+class LLaDABlockDiffBlock(LLaDABlock):
+    """
+    This is a transformer block where the output is computed as ``MLP(LN(x + Attention(LN(x))))``
+    (plus another skip connection). This block is similar to `LLaDASequentialBlock`
+    but some operations have slightly different implementations to imitate the
+    behavior of Llama.
+    """
+
+    def __init__(self, layer_id: int, config: ModelConfig, cache: BufferCache):
+        super().__init__(layer_id, config, cache)
+        # Layer norms.
+        self.attn_norm = LayerNorm.build(config)
+        self.ff_norm = LayerNorm.build(config)
+        self.__cache = cache
+
+        # Attention input projection. Projects x -> (q, k, v)
+        head_dim = config.d_model // config.n_heads
+        q_proj_out_dim = config.d_model
+        k_proj_out_dim = config.effective_n_kv_heads * head_dim
+        v_proj_out_dim = config.effective_n_kv_heads * head_dim
+        self.q_proj = nn.Linear(
+            config.d_model, q_proj_out_dim, bias=config.include_bias | config.include_qkv_bias, device=config.init_device
+        )
+        self.k_proj = nn.Linear(
+            config.d_model, k_proj_out_dim, bias=config.include_bias | config.include_qkv_bias, device=config.init_device
+        )
+        self.v_proj = nn.Linear(
+            config.d_model, v_proj_out_dim, bias=config.include_bias | config.include_qkv_bias, device=config.init_device
+        )
+
+        # Feed-forward input projection.
+        self.ff_proj = nn.Linear(
+            config.d_model, self.hidden_size, bias=config.include_bias, device=config.init_device
+        )
+        # new add
+        self.up_proj = nn.Linear(
+            config.d_model, self.hidden_size, bias=config.include_bias, device=config.init_device
+        )
+
+    def reset_parameters(self):
+        super().reset_parameters()
+        self.attn_norm.reset_parameters()
+        self.ff_norm.reset_parameters()
+        # NOTE: the standard deviation for these weights does not depend on the layer.
+        init_weights(self.config, self.q_proj, d=self.config.d_model, layer_id=None)
+        init_weights(self.config, self.k_proj, d=self.config.d_model, layer_id=None)
+        init_weights(self.config, self.v_proj, d=self.config.d_model, layer_id=None)
+        init_weights(self.config, self.ff_proj, d=self.config.d_model, layer_id=None)
+        init_weights(self.config, self.up_proj, d=self.config.d_model, layer_id=None)  # new add
+
+    def cross_attn_flex(self, qkv, mask=None):
+        qkv = rearrange(qkv, 'b s three h d -> b h three s d', h=self.n_heads)
+        x = fused_flex_attention(
+        qkv[:, :, 0], qkv[:, :, 1], qkv[:, :, 2], mask=mask)
+        x = rearrange(x, 'b h s d -> b s (h d)')
+        return x
 
     def forward(
         self,
@@ -1241,6 +1393,7 @@ class LLaDAModel(LLaDAPreTrainedModel):
         use_cache: bool = False,
         last_logits_only: bool = False,
         output_hidden_states: Optional[bool] = None,
+        replace_position: Optional[torch.Tensor] = None,
     ) -> LLaDAOutput:
         """
         :param input_ids: A tensor of shape `(batch_size, seq_len)`.
@@ -1377,11 +1530,11 @@ class LLaDAModel(LLaDAPreTrainedModel):
                 ):
                     # shape: (batch_size, seq_len, d_model)
                     x, cache = self._activation_checkpoint_fn(
-                        block, x, attention_bias=attention_bias, layer_past=layer_past, use_cache=use_cache
+                        block, x, attention_bias=attention_bias, layer_past=layer_past, use_cache=use_cache,replace_position=replace_position
                     )
                 else:
                     # shape: (batch_size, seq_len, d_model)
-                    x, cache = block(x, attention_bias=attention_bias, layer_past=layer_past, use_cache=use_cache)
+                    x, cache = block(x, attention_bias=attention_bias, layer_past=layer_past, use_cache=use_cache,replace_position=replace_position)
                 if attn_key_values is not None:
                     assert cache is not None
                     attn_key_values.append(cache)
@@ -1474,7 +1627,7 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        cache_position: Optional[Cache] = None,  # This is a hack mitigation of an issue in transformers `4.39.x`
+        replace_position: Optional[torch.Tensor] = None,  # This is a hack mitigation of an issue in transformers `4.39.x`
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         if use_cache is None:
             use_cache = self.config.use_cache
@@ -1483,7 +1636,7 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
             raise ValueError("output_attentions is not yet supported in LLaDA")
 
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
+        # import pdb; pdb.set_trace()
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model.forward(
             input_ids=input_ids,
@@ -1493,6 +1646,7 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
             past_key_values=past_key_values,
             use_cache=use_cache,
             output_hidden_states=output_hidden_states,
+            replace_position=replace_position,
         )
 
         logits = outputs.logits
@@ -1558,3 +1712,6 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
     def tie_weights(self):
         if self.config.weight_tying:
             self.model.transformer.ff_out = self.model.transformer.wte
+
+# Register the model so that it is available for transformer pipelines, auto-loading, etc.
+AutoModel.register(LLaDAConfig, LLaDAModelLM)
