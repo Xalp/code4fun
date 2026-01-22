@@ -129,11 +129,18 @@ def get_tokenizer(model_args) -> transformers.PreTrainedTokenizer:
         tokenizer.bos_token = tokenizer.pad_token
 
     # If model is not provided, return as-is
-    model_cfg = transformers.AutoConfig.from_pretrained(model_name_or_path)
-    model_cls = transformers.AutoModel._model_mapping[type(model_cfg)]
+    model_cfg = transformers.AutoConfig.from_pretrained(model_name_or_path, trust_remote_code=True)
+    
+    # Get model class, handling custom models that aren't in standard mapping
+    config_class_name = type(model_cfg).__name__
+    try:
+        model_cls = transformers.AutoModel._model_mapping[type(model_cfg)]
+    except KeyError:
+        # Custom model not in standard mapping, set to None and check config name instead
+        model_cls = None
 
     # ---------------- Model-specific customization ----------------
-    if issubclass(model_cls, LLaDAModelLM):
+    if config_class_name == "LLaDAConfig" or (model_cls is not None and issubclass(model_cls, LLaDAModelLM)):
         tokenizer.add_special_tokens({"mask_token": "<|mdm_mask|>"})
         tokenizer.eot_token = "<|eot_id|>"
         # tokenizer.eot_token_id = tokenizer.convert_tokens_to_ids(tokenizer.eot_token) # can not do this for llada base directly
@@ -152,14 +159,14 @@ def get_tokenizer(model_args) -> transformers.PreTrainedTokenizer:
 
 {% endif %}
 """
-    elif issubclass(model_cls, (LLaDAMoEModelLM, LLaDA2MoeModelLM)):
+    elif model_cls is not None and issubclass(model_cls, (LLaDAMoEModelLM, LLaDA2MoeModelLM)):
         tokenizer.add_special_tokens({"mask_token": "<|mask|>"})
         tokenizer.eot_token = "<|role_end|>"
         tokenizer.eot_token_id = tokenizer.convert_tokens_to_ids(tokenizer.eot_token)
-    elif issubclass(model_cls, DreamModel):
+    elif model_cls is not None and issubclass(model_cls, DreamModel):
         tokenizer.eot_token = "<|im_end|>"
         tokenizer.eot_token_id = tokenizer.convert_tokens_to_ids(tokenizer.eot_token)
-    elif issubclass(
+    elif model_cls is not None and issubclass(
         model_cls,
         (BertPreTrainedModel, RobertaPreTrainedModel, ModernBertPreTrainedModel),
     ):
@@ -191,11 +198,11 @@ def get_tokenizer(model_args) -> transformers.PreTrainedTokenizer:
 [Answer]
 {% endif %}
 """
-    elif issubclass(model_cls, A2DLlamaLMHeadModel):
+    elif model_cls is not None and issubclass(model_cls, A2DLlamaLMHeadModel):
         tokenizer.add_special_tokens({"mask_token": "<|mask|>"})
         tokenizer.eot_token = "<|eot_id|>"
         tokenizer.eot_token_id = tokenizer.convert_tokens_to_ids(tokenizer.eot_token)
-    elif issubclass(model_cls, (A2DQwen2LMHeadModel, A2DQwen3LMHeadModel)):
+    elif model_cls is not None and issubclass(model_cls, (A2DQwen2LMHeadModel, A2DQwen3LMHeadModel)):
         tokenizer.add_special_tokens({"mask_token": "<|mask|>"})
         tokenizer.eot_token = "<|im_end|>"
         tokenizer.eot_token_id = tokenizer.convert_tokens_to_ids(tokenizer.eot_token)
