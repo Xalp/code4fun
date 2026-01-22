@@ -68,7 +68,7 @@ if [ -z "$model_name_or_path" ]; then
     if [ "$model_type" == "llada" ]; then
         model_name_or_path="GSAI-ML/LLaDA-8B-Instruct"
     elif [ "$model_type" == "llada1.5" ]; then
-        model_name_or_path="GSAI-ML/LLaDA-1.5-Instruct" # Assuming hypothetical path or need to verify
+        model_name_or_path="GSAI-ML/LLaDA-1.5"
     elif [ "$model_type" == "dream" ]; then
         model_name_or_path="Dream-org/Dream-v0-Instruct-7B"
     else
