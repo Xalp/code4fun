@@ -4,10 +4,6 @@ export PYTHONPATH=.:$PYTHONPATH
 export HF_ALLOW_CODE_EVAL=1                 # Allow code evaluation
 export HF_DATASETS_TRUST_REMOTE_CODE=True   # For cmmlu dataset
 
-# ===== Performance optimizations (from code/srsmc/llada) =====
-export TORCHDYNAMO_DISABLE=1                # Disable torch.compile to avoid compilation overhead
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True  # Better CUDA memory allocation
-
 # ===== Optional but recommended for stability and debugging =====
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1    # Enable async error handling for multi-GPU communication to avoid deadlocks
 export NCCL_DEBUG=warn                      # Show NCCL warnings for better diagnosis without flooding logs
@@ -16,8 +12,8 @@ export TORCH_DISTRIBUTED_DEBUG=DETAIL       # Provide detailed logging for PyTor
 # ===== Default Configuration Variables =====
 # These can be overridden by command line arguments
 length=256
+steps=256
 block_size=32
-steps=$((length / block_size))  # Match code/srsmc/llada: steps = length / block_size
 temperature=0.1
 num_particles=4
 confidence_threshold="0.9" # Set to a float (e.g. 0.9) to enable validity check

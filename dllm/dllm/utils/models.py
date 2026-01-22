@@ -23,10 +23,6 @@ def get_model(
     Returns:
         transformers.PreTrainedModel
     """
-    # Lazy imports for local model classes (to avoid circular imports)
-    from dllm.pipelines.llada.models.modeling_llada import LLaDAModelLM
-    from dllm.pipelines.llada.models.configuration_llada import LLaDAConfig
-
     model_name_or_path = getattr(model_args, "model_name_or_path")
     dtype = getattr(model_args, "dtype", "bfloat16")
     load_in_4bit = getattr(model_args, "load_in_4bit", False)
@@ -49,42 +45,20 @@ def get_model(
             bnb_4bit_quant_type="nf4",
         )
 
-    # Load config if not provided
-    if config is None:
-        config = transformers.AutoConfig.from_pretrained(
-            model_name_or_path, trust_remote_code=True
-        )
-
-    # Enable flash_attention for LLaDA models
-    if hasattr(config, "flash_attention"):
-        config.flash_attention = True
-
     params = {
-        "torch_dtype": dtype,
+        "dtype": dtype,
         "device_map": device_map,
         "quantization_config": quant_config,
         "attn_implementation": attn_implementation,
         "config": config,
     }
 
-    # Check if this is a LLaDA model - use our LOCAL model class (which supports KV cache)
-    # instead of trust_remote_code which loads the HuggingFace version without KV cache support
-    is_llada = isinstance(config, LLaDAConfig) or (
-        hasattr(config, "model_type") and "llada" in config.model_type.lower()
-    )
-
-    if is_llada:
-        # Use local LLaDAModelLM which has KV cache support
-        model = LLaDAModelLM.from_pretrained(model_name_or_path, **params)
-    else:
-        # For other models, use AutoModel with trust_remote_code
-        params["trust_remote_code"] = True
-        try:
-            model = transformers.AutoModelForMaskedLM.from_pretrained(
-                model_name_or_path, **params
-            )
-        except Exception:
-            model = transformers.AutoModel.from_pretrained(model_name_or_path, **params)
+    try:
+        model = transformers.AutoModelForMaskedLM.from_pretrained(
+            model_name_or_path, **params
+        )
+    except Exception:
+        model = transformers.AutoModel.from_pretrained(model_name_or_path, **params)
 
     # --- if quantized, prepare for LoRA / QLoRA training ---
     if load_in_4bit and quant_config is not None:
@@ -143,25 +117,11 @@ def get_tokenizer(model_args) -> transformers.PreTrainedTokenizer:
         tokenizer.bos_token = tokenizer.pad_token
 
     # If model is not provided, return as-is
-    model_cfg = transformers.AutoConfig.from_pretrained(model_name_or_path, trust_remote_code=True)
-    
-    # Detect model type from config - handle both local and remote LLaDA configs
-    model_type = getattr(model_cfg, "model_type", "").lower()
-    is_llada = "llada" in model_type and "moe" not in model_type
-    is_llada_moe = "llada" in model_type and "moe" in model_type
-    is_llada2_moe = "llada2" in model_type and "moe" in model_type
-    is_dream = "dream" in model_type
-    
-    # Try to get model class from mapping, but handle LLaDA specially
-    model_cls = None
-    if not is_llada and not is_llada_moe and not is_llada2_moe and not is_dream:
-        try:
-            model_cls = transformers.AutoModel._model_mapping[type(model_cfg)]
-        except KeyError:
-            pass
+    model_cfg = transformers.AutoConfig.from_pretrained(model_name_or_path)
+    model_cls = transformers.AutoModel._model_mapping[type(model_cfg)]
 
     # ---------------- Model-specific customization ----------------
-    if is_llada:
+    if issubclass(model_cls, LLaDAModelLM):
         tokenizer.add_special_tokens({"mask_token": "<|mdm_mask|>"})
         tokenizer.eot_token = "<|eot_id|>"
         # tokenizer.eot_token_id = tokenizer.convert_tokens_to_ids(tokenizer.eot_token) # can not do this for llada base directly
@@ -180,14 +140,14 @@ def get_tokenizer(model_args) -> transformers.PreTrainedTokenizer:
 
 {% endif %}
 """
-    elif is_llada_moe or is_llada2_moe:
+    elif issubclass(model_cls, (LLaDAMoEModelLM, LLaDA2MoeModelLM)):
         tokenizer.add_special_tokens({"mask_token": "<|mask|>"})
         tokenizer.eot_token = "<|role_end|>"
         tokenizer.eot_token_id = tokenizer.convert_tokens_to_ids(tokenizer.eot_token)
-    elif is_dream:
+    elif issubclass(model_cls, DreamModel):
         tokenizer.eot_token = "<|im_end|>"
         tokenizer.eot_token_id = tokenizer.convert_tokens_to_ids(tokenizer.eot_token)
-    elif model_cls is not None and issubclass(
+    elif issubclass(
         model_cls,
         (BertPreTrainedModel, RobertaPreTrainedModel, ModernBertPreTrainedModel),
     ):
@@ -219,11 +179,11 @@ def get_tokenizer(model_args) -> transformers.PreTrainedTokenizer:
 [Answer]
 {% endif %}
 """
-    elif model_cls is not None and issubclass(model_cls, A2DLlamaLMHeadModel):
+    elif issubclass(model_cls, A2DLlamaLMHeadModel):
         tokenizer.add_special_tokens({"mask_token": "<|mask|>"})
         tokenizer.eot_token = "<|eot_id|>"
         tokenizer.eot_token_id = tokenizer.convert_tokens_to_ids(tokenizer.eot_token)
-    elif model_cls is not None and issubclass(model_cls, (A2DQwen2LMHeadModel, A2DQwen3LMHeadModel)):
+    elif issubclass(model_cls, (A2DQwen2LMHeadModel, A2DQwen3LMHeadModel)):
         tokenizer.add_special_tokens({"mask_token": "<|mask|>"})
         tokenizer.eot_token = "<|im_end|>"
         tokenizer.eot_token_id = tokenizer.convert_tokens_to_ids(tokenizer.eot_token)
