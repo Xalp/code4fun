@@ -13,7 +13,7 @@ export TORCH_DISTRIBUTED_DEBUG=DETAIL       # Provide detailed logging for PyTor
 # These can be overridden by command line arguments
 length=256
 steps=256
-block_length=32
+block_size=32
 num_particles=4
 confidence_threshold="0.9" # Set to a float (e.g. 0.9) to enable validity check
 use_smc=true
@@ -42,8 +42,8 @@ while [[ $# -gt 0 ]]; do
       length="$2"; shift 2 ;;
     --steps)
       steps="$2"; shift 2 ;;
-    --block_length)
-      block_length="$2"; shift 2 ;;
+    --block_size)
+      block_size="$2"; shift 2 ;;
     --confidence_threshold)
       confidence_threshold="$2"; shift 2 ;;
     --use_smc)
@@ -68,7 +68,7 @@ fi
 echo ">>> Running SMC Eval"
 echo "    Model: ${model_type} (${model_name_or_path})"
 echo "    SMC Config: particles=${num_particles}, use_smc=${use_smc}, threshold=${confidence_threshold}"
-echo "    Gen Config: length=${length}, steps=${steps}, block=${block_length}"
+echo "    Gen Config: length=${length}, steps=${steps}, block=${block_size}"
 
 # Construct model_args string
 # Note: we use ${model_type}_smc which must be registered in eval.py
@@ -81,7 +81,7 @@ if [ -n "$limit" ]; then
 fi
 
 # Base model_args passed to generic tasks
-base_model_args="pretrained=${model_name_or_path},max_new_tokens=${length},steps=${steps},block_length=${block_length},num_particles=${num_particles},use_smc=${use_smc},output_path="./results",log_samples"
+base_model_args="pretrained=${model_name_or_path},max_new_tokens=${length},steps=${steps},block_size=${block_size},num_particles=${num_particles},use_smc=${use_smc},output_path="./results",log_samples"
 
 if [ -n "$confidence_threshold" ]; then
     base_model_args="${base_model_args},threshold=${confidence_threshold}"
