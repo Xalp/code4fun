@@ -32,12 +32,14 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
         self.threshold = kwargs.get("threshold", None)
         self.factor = kwargs.get("factor", None)
         self.use_smc = kwargs.get("use_smc", True)
+        self.temperature = float(kwargs.get("temperature", 0.0))
 
         if config:
             if hasattr(config, "num_particles"): self.num_particles = config.num_particles
             if hasattr(config, "threshold"): self.threshold = config.threshold
             if hasattr(config, "factor"): self.factor = config.factor
             if hasattr(config, "use_smc"): self.use_smc = config.use_smc
+            if hasattr(config, "temperature"): self.temperature = config.temperature
         
         if str(self.use_smc).lower() == "false":
             self.num_particles = 1

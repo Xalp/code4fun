@@ -97,11 +97,11 @@ CMD="python -m accelerate.commands.launch --num_processes ${num_gpu} dllm/exampl
 if [ "$instruct" = "true" ]; then
     # Instruct Tasks
     
-    $CMD --tasks mmlu_generative_dream --num_fewshot 4 ${common_args} \
-        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
+    # $CMD --tasks mmlu_generative_dream --num_fewshot 4 ${common_args} \
+    #     --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
-    $CMD --tasks mmlu_pro --num_fewshot 4 ${common_args} \
-        --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
+    # $CMD --tasks mmlu_pro --num_fewshot 4 ${common_args} \
+    #     --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     $CMD --tasks gsm8k_cot --num_fewshot 0 ${common_args} \
         --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
@@ -110,8 +110,8 @@ if [ "$instruct" = "true" ]; then
     $CMD --tasks math500 --num_fewshot 0 ${common_args} \
         --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
-    $CMD --tasks gpqa_main_n_shot --num_fewshot 5 ${common_args} \
-        --model_args "${base_model_args},mc_num=32"
+    # $CMD --tasks gpqa_main_n_shot --num_fewshot 5 ${common_args} \
+    #     --model_args "${base_model_args},mc_num=32"
 
     $CMD --tasks humaneval_instruct_dream --num_fewshot 0 ${common_args} \
         --model_args "${base_model_args},temperature=0.1,top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False" \
