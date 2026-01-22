@@ -54,11 +54,17 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
         # The parent class doesn't enable flash_attention by default
         pretrained = kwargs.get("pretrained", config.pretrained if config else "")
         # Handle DistributedDataParallel wrapper
-        model_config = getattr(self.model, 'module', self.model).config
-        if pretrained and not getattr(model_config, 'flash_attention', False):
+        underlying_model = getattr(self.model, 'module', self.model)
+        if pretrained and not getattr(underlying_model.config, 'flash_attention', False):
             print("[SMC] Reloading model with flash_attention=True...")
-            model_config = AutoConfig.from_pretrained(pretrained)
-            model_config.flash_attention = True
+            
+            # Free the old model first to avoid OOM
+            del self.model
+            del underlying_model
+            torch.cuda.empty_cache()
+            
+            new_config = AutoConfig.from_pretrained(pretrained)
+            new_config.flash_attention = True
             
             from dllm.pipelines.llada.models.modeling_llada import LLaDAModelLM
             
@@ -66,7 +72,7 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
                 pretrained, 
                 trust_remote_code=True, 
                 torch_dtype=torch.bfloat16, 
-                config=model_config,
+                config=new_config,
                 device_map={'': str(self.device)}
             )
             self.model.eval()
