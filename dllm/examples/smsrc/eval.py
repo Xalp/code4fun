@@ -53,7 +53,9 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
         # Reload model with flash attention enabled for ~2x faster inference
         # The parent class doesn't enable flash_attention by default
         pretrained = kwargs.get("pretrained", config.pretrained if config else "")
-        if pretrained and not getattr(self.model.config, 'flash_attention', False):
+        # Handle DistributedDataParallel wrapper
+        model_config = getattr(self.model, 'module', self.model).config
+        if pretrained and not getattr(model_config, 'flash_attention', False):
             print("[SMC] Reloading model with flash_attention=True...")
             model_config = AutoConfig.from_pretrained(pretrained)
             model_config.flash_attention = True
