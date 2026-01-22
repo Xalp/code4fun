@@ -9,6 +9,7 @@ from lm_eval.__main__ import cli_evaluate
 from lm_eval.api.instance import Instance
 from lm_eval.api.registry import register_model
 from lm_eval.models.utils import get_dtype
+from transformers import AutoConfig
 
 import dllm
 from dllm.pipelines.llada.eval import LLaDAEvalConfig, LLaDAEvalHarness
@@ -48,6 +49,28 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
             self.threshold = float(self.threshold)
         if self.factor is not None:
              self.factor = float(self.factor)
+        
+        # Reload model with flash attention enabled for ~2x faster inference
+        # The parent class doesn't enable flash_attention by default
+        pretrained = kwargs.get("pretrained", config.pretrained if config else "")
+        if pretrained and not getattr(self.model.config, 'flash_attention', False):
+            print("[SMC] Reloading model with flash_attention=True...")
+            model_config = AutoConfig.from_pretrained(pretrained)
+            model_config.flash_attention = True
+            
+            from dllm.pipelines.llada.models.modeling_llada import LLaDAModelLM
+            
+            self.model = LLaDAModelLM.from_pretrained(
+                pretrained, 
+                trust_remote_code=True, 
+                torch_dtype=torch.bfloat16, 
+                config=model_config,
+                device_map={'': str(self.device)}
+            )
+            self.model.eval()
+            
+            if self.accelerator is not None:
+                self.model = self.accelerator.prepare(self.model)
 
     def generate_until(self, requests: list[Instance]) -> list[str]:
         """Generate greedily until a stopping sequence, using SMC"""
@@ -68,19 +91,25 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
             stop_tokens = gen_kwargs["until"]
             max_gen = self.max_new_tokens
             
-            generated_ids, _ = generate_with_prefix_cache_smc(
-                model=self.model,
-                prompt=prompt,
-                steps=self.steps,
-                gen_length=max_gen,
-                block_length=self.block_size,
-                temperature=self.temperature, 
-                remasking=self.remasking,
-                num_particles=self.num_particles,
-                threshold=self.threshold,
-                factor=self.factor,
-                mask_id=126336 # LLaDA default
-            )
+            try:
+                generated_ids, _ = generate_with_prefix_cache_smc(
+                    model=self.model,
+                    prompt=prompt,
+                    steps=self.steps,
+                    gen_length=max_gen,
+                    block_length=self.block_size,
+                    temperature=self.temperature, 
+                    remasking=self.remasking,
+                    num_particles=self.num_particles,
+                    threshold=self.threshold,
+                    factor=self.factor,
+                    mask_id=self.mask_id
+                )
+            except torch.cuda.OutOfMemoryError as e:
+                print(f"[WARNING] OOM error, skipping: {e}")
+                torch.cuda.empty_cache()
+                out.append("# OOM: skipped")
+                continue
             
             # generated_ids is (1, total_len) because generate_smc returns best particle
             # Match eval_llada.py logic: Decode with special tokens, split, re-encode, decode without special tokens
@@ -97,9 +126,10 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
                 generated_answer_ids, skip_special_tokens=True
             )
             out.append(generated_answer)
-            
-            if self.accelerator is not None:
-                self.accelerator.wait_for_everyone()
+
+        # Sync once at the end, not per-sample (reduces overhead)
+        if self.accelerator is not None:
+            self.accelerator.wait_for_everyone()
 
         return out
 
