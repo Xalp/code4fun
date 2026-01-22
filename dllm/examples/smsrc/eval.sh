@@ -116,11 +116,11 @@ if [ "$instruct" = "true" ]; then
     # $CMD --tasks gpqa_main_n_shot --num_fewshot 5 ${common_args} \
     #     --model_args "${base_model_args},mc_num=32"
 
-    $CMD --tasks humaneval_instruct_dream --num_fewshot 0 ${common_args} \
+    $CMD --tasks humaneval --num_fewshot 0 ${common_args} \
         --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False" \
         --confirm_run_unsafe_code
 
-    $CMD --tasks mbpp_instruct_dream --num_fewshot 0 ${common_args} \
+    $CMD --tasks mbpp --num_fewshot 3 ${common_args} \
         --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False" \
         --confirm_run_unsafe_code
 
