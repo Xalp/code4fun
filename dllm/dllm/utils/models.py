@@ -47,16 +47,19 @@ def get_model(
 
     # Load config if not provided, and enable flash_attention for LLaDA models
     if config is None:
-        config = transformers.AutoConfig.from_pretrained(model_name_or_path)
+        config = transformers.AutoConfig.from_pretrained(
+            model_name_or_path, trust_remote_code=True
+        )
     if hasattr(config, "flash_attention"):
         config.flash_attention = True
 
     params = {
-        "dtype": dtype,
+        "torch_dtype": dtype,  # transformers uses torch_dtype, not dtype
         "device_map": device_map,
         "quantization_config": quant_config,
         "attn_implementation": attn_implementation,
         "config": config,
+        "trust_remote_code": True,
     }
 
     try:
