@@ -51,15 +51,24 @@ while [[ $# -gt 0 ]]; do
       use_smc="$2"; shift 2 ;;
     --temperature)
       temperature="$2"; shift 2 ;;
+    --output_dir)
+      output_dir="$2"; shift 2 ;;
     *) 
       echo "Error: Unknown argument: $1"; exit 1 ;;
   esac
 done
 
+# Set default output dir if not provided
+if [ -z "$output_dir" ]; then
+    output_dir="./results"
+fi
+
 # Set default model path if not provided
 if [ -z "$model_name_or_path" ]; then
     if [ "$model_type" == "llada" ]; then
         model_name_or_path="GSAI-ML/LLaDA-8B-Instruct"
+    elif [ "$model_type" == "llada1.5" ]; then
+        model_name_or_path="GSAI-ML/LLaDA-1.5-Instruct" # Assuming hypothetical path or need to verify
     elif [ "$model_type" == "dream" ]; then
         model_name_or_path="Dream-org/Dream-v0-Instruct-7B"
     else
@@ -72,10 +81,17 @@ echo ">>> Running SMC Eval"
 echo "    Model: ${model_type} (${model_name_or_path})"
 echo "    SMC Config: particles=${num_particles}, use_smc=${use_smc}, threshold=${confidence_threshold}"
 echo "    Gen Config: length=${length}, steps=${steps}, block=${block_size}, temp=${temperature}"
+echo "    Output Dir: ${output_dir}"
 
 # Construct model_args string
 # Note: we use ${model_type}_smc which must be registered in eval.py
-common_args="--model ${model_type}_smc --output_path ./results --log_samples"
+# We map llada1.5 to llada_smc as it uses same architecture usually
+model_alias="${model_type}_smc"
+if [ "$model_type" == "llada1.5" ]; then
+    model_alias="llada_smc"
+fi
+
+common_args="--model ${model_alias} --output_path ${output_dir} --log_samples"
 if [ "$instruct" = "true" ]; then
     common_args="$common_args --apply_chat_template"
 fi
