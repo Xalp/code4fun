@@ -12,11 +12,13 @@ from lm_eval.models.utils import get_dtype
 
 import dllm
 from dllm.pipelines.llada.eval import LLaDAEvalConfig, LLaDAEvalHarness
+from dllm.pipelines.dream.eval import DreamEvalConfig, DreamEvalHarness
+
 # Import our local SMC generator
 try:
     from .generate_smc import generate_with_prefix_cache_smc
 except ImportError:
-    from generate_smc import generate_with_prefix_cache_smc
+    pass # Will be imported in methods if needed or rely on script execution context
 
 @register_model("llada_smc")
 class LLaDASMC_EvalHarness(LLaDAEvalHarness):
@@ -26,45 +28,42 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
         **kwargs,
     ):
         super().__init__(config, **kwargs)
-        # Add any SMC specific config if needed, e.g. num_particles
-        self.num_particles = kwargs.get("num_particles", 4)
-        if hasattr(config, "num_particles"):
+        self.num_particles = int(kwargs.get("num_particles", 4))
+        if config and hasattr(config, "num_particles"):
             self.num_particles = config.num_particles
 
     def generate_until(self, requests: list[Instance]) -> list[str]:
         """Generate greedily until a stopping sequence, using SMC"""
-        out = []
-        # We don't use MDLMSampler here, we use our SMC generator
+        # Ensure generate_smc is imported
+        try:
+            from .generate_smc import generate_with_prefix_cache_smc
+        except ImportError:
+            from generate_smc import generate_with_prefix_cache_smc
 
-        for instance in tqdm(requests, desc="Generating (SMC)..."):
-            context, gen_kwargs = instance.args  # type: ignore
+        out = []
+        for instance in tqdm(requests, desc="Generating (SMC-LLaDA)..."):
+            context, gen_kwargs = instance.args 
+            
+            # Simple batching implementation (batch size 1 for safety with SMC)
             prompt_ids = self.tokenizer(context)["input_ids"]
             prompt = torch.tensor(prompt_ids, device=self.device, dtype=torch.long).unsqueeze(0)
             
             stop_tokens = gen_kwargs["until"]
-            
-            # Call SMC generator
-            # Note: generate_with_prefix_cache_smc returns (x, nfe)
-            # x shape: (num_particles * batch, len) -> (1, len) because it selects best
-            
-            # Although the function signature of generate_with_prefix_cache_smc supports batching via prompt.shape[0],
-            # the eval loop processes one instance at a time (unless we optimized it, but let's stick to safe loop).
-            # The original eval.py processes in a loop but with batch=1 for prompt usually.
+            max_gen = self.max_new_tokens
             
             generated_ids, _ = generate_with_prefix_cache_smc(
                 model=self.model,
                 prompt=prompt,
                 steps=self.steps,
-                gen_length=self.max_new_tokens,
+                gen_length=max_gen,
                 block_length=self.block_size,
-                temperature=0.0, # Usually 0 for deterministic-ish sampling, but SMC adds gumbel noise anyway
+                temperature=self.temperature, 
                 remasking=self.remasking,
-                num_particles=int(self.num_particles),
-                # pass other args if needed
+                num_particles=self.num_particles,
+                mask_id=126336 # LLaDA default
             )
             
-            # generated_ids is (1, total_len) because generate_smc returns x[idx:idx+1] (best particle)
-            
+            # generated_ids is (1, total_len) because generate_smc returns best particle
             generated_answer = self.tokenizer.decode(
                 generated_ids[0][prompt.shape[1] :], skip_special_tokens=False
             )
@@ -73,7 +72,6 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
                 if stop_seq in generated_answer:
                     generated_answer = generated_answer.split(stop_seq)[0]
 
-            # remove special tokens
             generated_answer_ids = self.tokenizer(generated_answer)["input_ids"]
             generated_answer = self.tokenizer.decode(
                 generated_answer_ids, skip_special_tokens=True
@@ -84,6 +82,81 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
                 self.accelerator.wait_for_everyone()
 
         return out
+
+@register_model("dream_smc")
+class DreamSMC_EvalHarness(DreamEvalHarness):
+    def __init__(
+        self,
+        config: DreamEvalConfig | None = None,
+        **kwargs,
+    ):
+        super().__init__(config, **kwargs)
+        self.num_particles = int(kwargs.get("num_particles", 4))
+        if config and hasattr(config, "num_particles"):
+            self.num_particles = config.num_particles
+
+    def generate_until(self, requests: list[Instance]) -> list[str]:
+        """Generate greedily until a stopping sequence, using SMC for Dream"""
+        try:
+            from .generate_smc import generate_with_prefix_cache_smc
+        except ImportError:
+            from generate_smc import generate_with_prefix_cache_smc
+
+        out = []
+        for instance in tqdm(requests, desc="Generating (SMC-Dream)..."):
+            context, gen_kwargs = instance.args
+            
+            prompts = [context]
+            if self.add_bos_token:
+                prompts = [self.tokenizer.bos_token + p for p in prompts]
+            
+            prompt_ids_list = [
+                self.tokenizer(p, return_tensors="pt", padding=False).input_ids.squeeze().to(self.device)
+                for p in prompts
+            ]
+            # Batch size 1 logic
+            prompt = prompt_ids_list[0].unsqueeze(0)
+            
+            # Handle truncation if needed (simplified from DreamEvalHarness)
+            if prompt.shape[1] > self.max_length - self.max_new_tokens:
+                 cutoff_len = self.max_length - self.max_new_tokens
+                 prompt = prompt[:, -cutoff_len:]
+
+            stop_tokens = gen_kwargs["until"]
+            
+            # Dream typically does full generation (diffusion steps). 
+            # We assume block_length = gen_length for standard diffusion unless specified.
+            # But generate_smc supports AR. We'll default to using 'steps' and 'max_new_tokens'.
+            
+            generated_ids, _ = generate_with_prefix_cache_smc(
+                model=self.model,
+                prompt=prompt,
+                steps=self.steps,
+                gen_length=self.max_new_tokens,
+                block_length=self.max_new_tokens, # Defaulting to full block for Dream
+                temperature=self.temperature, 
+                remasking='low_confidence', # Dream default usually? Or from config?
+                num_particles=self.num_particles,
+                mask_id=self.tokenizer.mask_token_id
+            )
+            
+            responses = [
+                g.removeprefix("<|endoftext|>").split(self.tokenizer.eos_token, 1)[0]
+                for g in self.tokenizer.batch_decode(generated_ids)
+            ]
+            
+            r = responses[0]
+            if not self.escape_until:
+                for s in stop_tokens:
+                    r = r.split(s)[0]
+            
+            out.append(r)
+            
+            if self.accelerator is not None:
+                self.accelerator.wait_for_everyone()
+                
+        return out
+
 
 if __name__ == "__main__":
     cli_evaluate()
