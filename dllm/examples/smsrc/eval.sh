@@ -122,7 +122,7 @@ if [ "$instruct" = "true" ]; then
     # $CMD --tasks mmlu_pro --num_fewshot 4 ${common_args} \
     #     --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
-    $CMD --tasks gsm8k_cot --num_fewshot 0 ${common_args} \
+    $CMD --tasks gsm8k --num_fewshot 5 ${common_args} \
         --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     # REPLACED minerva_math with math500
