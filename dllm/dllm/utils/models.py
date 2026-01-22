@@ -49,6 +49,7 @@ def get_model(
     if config is None:
         config = transformers.AutoConfig.from_pretrained(model_name_or_path)
     if hasattr(config, "flash_attention"):
+        print("[!!!]Enabling flash attention")
         config.flash_attention = True
 
     params = {
