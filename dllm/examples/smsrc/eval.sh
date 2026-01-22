@@ -126,7 +126,7 @@ if [ "$instruct" = "true" ]; then
         --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     # REPLACED minerva_math with math500
-    $CMD --tasks math500 --num_fewshot 0 ${common_args} \
+    $CMD --tasks minerva_math500 --num_fewshot 0 ${common_args} \
         --model_args "${base_model_args},temperature=${temperature},top_p=0.9,dtype=bfloat16,add_bos_token=False,escape_until=False"
 
     # $CMD --tasks gpqa_main_n_shot --num_fewshot 5 ${common_args} \

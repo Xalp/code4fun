@@ -16,21 +16,10 @@ def add_gumbel_noise(logits, temperature):
     
     Memory-optimized version: uses in-place operations where possible.
     '''
-    if temperature == 0:
-        return logits
-    # Use float32 to save memory (half the memory of float64)
-    # If quality degrades significantly, switch back to float64
-    logits = logits.to(torch.float32)
-    noise = torch.rand_like(logits, dtype=torch.float32)
-    # In-place operations to reduce memory
-    noise.log_().neg_()  # noise = -log(noise)
-    if temperature != 1.0:
-        noise.pow_(temperature)  # noise = noise ** temperature
-    # logits.exp() / noise = exp(logits - log(noise)) but we already have -log(noise)
-    # So: exp(logits) / (-log(noise))^temp = exp(logits) / noise (after transforms)
-    logits.exp_()  # in-place exp
-    logits.div_(noise)  # in-place division
-    return logits
+    logits = logits.to(torch.float64)
+    noise = torch.rand_like(logits, dtype=torch.float64)
+    gumbel_noise = (- torch.log(noise)) ** temperature
+    return logits.exp() / gumbel_noise
 
 
 def get_num_transfer_tokens(mask_index, steps):
@@ -120,6 +109,7 @@ def generate(model, prompt, steps=128, gen_length=128, block_length=128, tempera
                 print(f"Normal Resampling at block {num_block}, with ess: {ess:.2f}")
                 k_idx = torch.multinomial(weights, num_samples=num_particles, replacement=True).squeeze(-1)
                 x = x[k_idx]; logp = logp[k_idx]; log_w = log_w[k_idx] #log_w.zero_()
+                log_w -= log_w.mean()
 
         tps = block_length // i # tokens_per_step
         print(f"num_block: {num_block+1}, block length: {block_length}, diffusion steps: {i}, tokens/step: {tps}, num_particles: {num_particles}")
@@ -227,6 +217,7 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
                 print(f"Resampling at block {num_block}, with ess: {ess:.2f}")
                 k_idx = torch.multinomial(weights, num_samples=num_particles, replacement=True).squeeze(-1)
                 x = x[k_idx]; logp = logp[k_idx]; log_w = log_w[k_idx]
+                log_w -= log_w.mean()
                 # log_w.zero_()
 
         tps = block_length // i # tokens_per_step
@@ -246,7 +237,7 @@ def get_transfer_index(logits, temperature, remasking, mask_index, x, num_transf
     logits_with_noise = add_gumbel_noise(logits, temperature=temperature)
     x0 = torch.argmax(logits_with_noise, dim=-1) # b, l
     if remasking == 'low_confidence':
-        log_pt = F.log_softmax(logits.to(torch.float32), dim=-1)
+        log_pt = F.log_softmax(logits.to(torch.float64), dim=-1)
         x0_logp = torch.squeeze(
             torch.gather(log_pt, dim=-1, index=torch.unsqueeze(x0, -1)), -1) # b, l
         x0_p = x0_logp.exp()
@@ -274,7 +265,7 @@ def get_transfer_index_dynamic(logits, temperature, remasking, mask_index, x, nu
     logits_with_noise = add_gumbel_noise(logits, temperature=temperature)
     x0 = torch.argmax(logits_with_noise, dim=-1) # b, l
     if remasking == 'low_confidence':
-        log_p = F.log_softmax(logits.to(torch.float32), dim=-1)
+        log_p = F.log_softmax(logits.to(torch.float64), dim=-1)
         x0_logp = torch.squeeze(
             torch.gather(log_p, dim=-1, index=torch.unsqueeze(x0, -1)), -1) # b, l
         x0_p = x0_logp.exp()
