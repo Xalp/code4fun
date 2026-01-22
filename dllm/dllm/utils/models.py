@@ -47,9 +47,8 @@ def get_model(
 
     # Load config and enable flash attention for LLaDA models
     if config is None:
-        config = transformers.AutoConfig.from_pretrained(model_name_or_path)
+        config = transformers.AutoConfig.from_pretrained(model_name_or_path, trust_remote_code=True)
     if hasattr(config, "flash_attention"):
-        print("[!!!]Enabling flash attention")
         config.flash_attention = True
 
     params = {
@@ -58,6 +57,7 @@ def get_model(
         "quantization_config": quant_config,
         "attn_implementation": attn_implementation,
         "config": config,
+        "trust_remote_code": True,
     }
 
     try:
