@@ -75,7 +75,7 @@ echo "    Gen Config: length=${length}, steps=${steps}, block=${block_size}, tem
 
 # Construct model_args string
 # Note: we use ${model_type}_smc which must be registered in eval.py
-common_args="--model ${model_type}_smc"
+common_args="--model ${model_type}_smc --output_path ./results --log_samples"
 if [ "$instruct" = "true" ]; then
     common_args="$common_args --apply_chat_template"
 fi
@@ -84,7 +84,7 @@ if [ -n "$limit" ]; then
 fi
 
 # Base model_args passed to generic tasks
-base_model_args="pretrained=${model_name_or_path},max_new_tokens=${length},steps=${steps},block_size=${block_size},num_particles=${num_particles},use_smc=${use_smc},output_path="./results",log_samples"
+base_model_args="pretrained=${model_name_or_path},max_new_tokens=${length},steps=${steps},block_size=${block_size},num_particles=${num_particles},use_smc=${use_smc}"
 
 if [ -n "$confidence_threshold" ]; then
     base_model_args="${base_model_args},threshold=${confidence_threshold}"
