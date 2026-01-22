@@ -130,68 +130,16 @@ class DreamSMC_EvalHarness(DreamEvalHarness):
              self.factor = float(self.factor)
 
     def generate_until(self, requests: list[Instance]) -> list[str]:
-        """Generate greedily until a stopping sequence, using SMC for Dream"""
-        try:
-            from .generate_smc import generate_with_prefix_cache_smc
-        except ImportError:
-            from generate_smc import generate_with_prefix_cache_smc
-
-        out = []
-        for instance in tqdm(requests, desc="Generating (SMC-Dream)..."):
-            context, gen_kwargs = instance.args
-            
-            prompts = [context]
-            if self.add_bos_token:
-                prompts = [self.tokenizer.bos_token + p for p in prompts]
-            
-            prompt_ids_list = [
-                self.tokenizer(p, return_tensors="pt", padding=False).input_ids.squeeze().to(self.device)
-                for p in prompts
-            ]
-            # Batch size 1 logic
-            prompt = prompt_ids_list[0].unsqueeze(0)
-            
-            # Handle truncation if needed (simplified from DreamEvalHarness)
-            if prompt.shape[1] > self.max_length - self.max_new_tokens:
-                 cutoff_len = self.max_length - self.max_new_tokens
-                 prompt = prompt[:, -cutoff_len:]
-
-            stop_tokens = gen_kwargs["until"]
-            
-            # Dream typically does full generation (diffusion steps). 
-            # We assume block_length = gen_length for standard diffusion unless specified.
-            # But generate_smc supports AR. We'll default to using 'steps' and 'max_new_tokens'.
-            
-            generated_ids, _ = generate_with_prefix_cache_smc(
-                model=self.model,
-                prompt=prompt,
-                steps=self.steps,
-                gen_length=self.max_new_tokens,
-                block_length=self.max_new_tokens, # Defaulting to full block for Dream
-                temperature=self.temperature, 
-                remasking='low_confidence', # Dream default usually? Or from config?
-                num_particles=self.num_particles,
-                threshold=self.threshold,
-                factor=self.factor,
-                mask_id=self.tokenizer.mask_token_id
-            )
-            
-            responses = [
-                g.removeprefix("<|endoftext|>").split(self.tokenizer.eos_token, 1)[0]
-                for g in self.tokenizer.batch_decode(generated_ids)
-            ]
-            
-            r = responses[0]
-            if not self.escape_until:
-                for s in stop_tokens:
-                    r = r.split(s)[0]
-            
-            out.append(r)
-            
-            if self.accelerator is not None:
-                self.accelerator.wait_for_everyone()
-                
-        return out
+        """Generate using Dream's native sampler which supports SMC internally.
+        
+        Note: Dream's DreamSampler uses diffusion_generate which handles SMC
+        via num_return_sequences and internal resampling. We delegate to the
+        parent's generate_until rather than using the LLaDA-specific SMC generator.
+        """
+        # Dream's native sampler (DreamEvalHarness.generate_until) uses DreamSampler
+        # which internally calls model.sample() with the configured params.
+        # The SMC is handled differently in Dream - via its generation_utils.
+        return super().generate_until(requests)
 
 
 if __name__ == "__main__":
