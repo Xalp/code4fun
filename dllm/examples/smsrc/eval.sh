@@ -81,7 +81,7 @@ if [ -n "$limit" ]; then
 fi
 
 # Base model_args passed to generic tasks
-base_model_args="pretrained=${model_name_or_path},max_new_tokens=${length},steps=${steps},block_length=${block_length},num_particles=${num_particles},use_smc=${use_smc}"
+base_model_args="pretrained=${model_name_or_path},max_new_tokens=${length},steps=${steps},block_length=${block_length},num_particles=${num_particles},use_smc=${use_smc},output_path="./results",log_samples"
 
 if [ -n "$confidence_threshold" ]; then
     base_model_args="${base_model_args},threshold=${confidence_threshold}"
