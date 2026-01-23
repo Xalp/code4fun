@@ -372,6 +372,9 @@ class LLaDAEvalHarness(LM):
                     with open(save_path, 'a', encoding='utf-8') as f:
                         for ans in batched_generated_answer:
                             f.write(json.dumps(ans, ensure_ascii=False) + '\n')
+                # Still synchronize after OOM to prevent rank mismatch
+                if self.accelerator is not None:
+                    self.accelerator.wait_for_everyone()
                 continue
 
             if self.is_instruct and 'task_id' in req.doc and str(req.doc['task_id']).lower().startswith('humaneval'):
@@ -410,7 +413,9 @@ class LLaDAEvalHarness(LM):
                 print('nfe: ', nfe)
                 print('avg nfe: ', num_nfe / len(output))
                 print('=' * 20, end='\n\n')
-            # self.accelerator.wait_for_everyone()
+            # Synchronize after each batch to prevent rank mismatch
+            if self.accelerator is not None:
+                self.accelerator.wait_for_everyone()
         end_time = time.time()
         if self.show_speed:
             print(f"Total number of tokens generated: {num_tokens}")

@@ -398,8 +398,8 @@ class LLaDAEvalHarness(LM):
                 torch.cuda.empty_cache()
                 # Return placeholder answer to mark as wrong and continue
                 out.append("# OOM: skipped")
-                continue
-                
+            
+            # Always synchronize, even after OOM, to prevent rank mismatch
             if self.accelerator is not None:
                 self.accelerator.wait_for_everyone()
 
