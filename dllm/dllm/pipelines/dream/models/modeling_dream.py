@@ -848,6 +848,32 @@ class DreamModel(DreamGenerationMixin, DreamPreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
+        if isinstance(attention_mask, str) and attention_mask == "full" or attention_mask is None:
+            # whether attention_mask is full
+            pass
+
+        elif isinstance(attention_mask, torch.Tensor):
+            if not torch.any(attention_mask == 0.0):
+                attention_mask = 'full'  
+            elif attention_mask.dim() == 2:
+                # [B, L] → [B, 1, L, L]
+                attention_mask = torch.logical_and(
+                    attention_mask.unsqueeze(1).unsqueeze(-2),
+                    attention_mask.unsqueeze(1).unsqueeze(-1),
+                )
+                attention_mask = attention_mask.to(torch.bool)
+
+            elif attention_mask.dim() in (3, 4):
+                # already extended/broadcasted form
+                if attention_mask.dtype != torch.bool:
+                    attention_mask = attention_mask.to(torch.bool)
+
+            else:
+                raise ValueError(f"Unexpected attention_mask shape: {attention_mask.shape}")
+
+        else:
+            raise TypeError(f"Unsupported attention_mask type: {type(attention_mask)}")
+
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(
             input_ids=input_ids,
