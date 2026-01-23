@@ -310,40 +310,39 @@ class LLaDAEvalHarness(LM):
         start_time = time.time()
 
         for batch in tqdm(batched_requests, desc="Generating..."):
-            batched_input_ids = []
-            max_len = 0
-            pad_len = []
-            for req in batch:
-                question = req.args[0]
-                if self.is_instruct:
-                    m = [{"role": "user", "content": question}]
-                    user_input = self.tokenizer.apply_chat_template(m, add_generation_prompt=True, tokenize=False)
-                    input_ids = self.tokenizer(user_input)['input_ids']
-                else:
-                    user_input = question
-                    input_ids = self.tokenizer(user_input)['input_ids']
-                batched_input_ids.append(input_ids)
-                max_len = max(max_len, len(input_ids))
-                pad_len.append(max_len - len(input_ids))
-            
-            # pad batched_input_ids to the same length
-            batched_input_ids = [torch.cat([torch.full((1, max_len - len(input_ids)), self.tokenizer.pad_token_id, dtype=torch.long, device=self.device), torch.tensor(input_ids, dtype=torch.long, device=self.device).unsqueeze(0)], dim=1) for input_ids in batched_input_ids]
-            batched_input_ids = torch.cat(batched_input_ids, dim=0)
-            batched_input_ids = batched_input_ids.to(self.device)
-            
-            if self.batch_size == 1:
-                attention_mask = None
-            else:
-                attention_mask = torch.zeros((batched_input_ids.shape[0], 1, max_len+self.gen_length, max_len+self.gen_length), device=self.device, dtype=torch.bool)
-                for i in range(len(pad_len)):
-                    attention_mask[i, :, pad_len[i]:, pad_len[i]:] = True
-
-
-            stop_tokens = req.args[1]['until']
-            input_ids = batched_input_ids
-            
-            # 捕获 OOM 错误，跳过该样本而不是崩溃
+            # 捕获整个batch处理过程中的 OOM 错误，跳过该样本而不是崩溃
             try:
+                batched_input_ids = []
+                max_len = 0
+                pad_len = []
+                for req in batch:
+                    question = req.args[0]
+                    if self.is_instruct:
+                        m = [{"role": "user", "content": question}]
+                        user_input = self.tokenizer.apply_chat_template(m, add_generation_prompt=True, tokenize=False)
+                        input_ids = self.tokenizer(user_input)['input_ids']
+                    else:
+                        user_input = question
+                        input_ids = self.tokenizer(user_input)['input_ids']
+                    batched_input_ids.append(input_ids)
+                    max_len = max(max_len, len(input_ids))
+                    pad_len.append(max_len - len(input_ids))
+                
+                # pad batched_input_ids to the same length
+                batched_input_ids = [torch.cat([torch.full((1, max_len - len(input_ids)), self.tokenizer.pad_token_id, dtype=torch.long, device=self.device), torch.tensor(input_ids, dtype=torch.long, device=self.device).unsqueeze(0)], dim=1) for input_ids in batched_input_ids]
+                batched_input_ids = torch.cat(batched_input_ids, dim=0)
+                batched_input_ids = batched_input_ids.to(self.device)
+                
+                if self.batch_size == 1:
+                    attention_mask = None
+                else:
+                    attention_mask = torch.zeros((batched_input_ids.shape[0], 1, max_len+self.gen_length, max_len+self.gen_length), device=self.device, dtype=torch.bool)
+                    for i in range(len(pad_len)):
+                        attention_mask[i, :, pad_len[i]:, pad_len[i]:] = True
+
+
+                stop_tokens = req.args[1]['until']
+                input_ids = batched_input_ids
                 if self.use_cache:
                     if self.dual_cache:
                         generated_answer, nfe = generate_with_dual_cache(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length, 

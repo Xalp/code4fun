@@ -59,44 +59,52 @@ class LLaDASMC_EvalHarness(LLaDAEvalHarness):
 
         out = []
         for instance in tqdm(requests, desc="Generating (SMC-LLaDA)..."):
-            context, gen_kwargs = instance.args 
-            
-            # Simple batching implementation (batch size 1 for safety with SMC)
-            prompt_ids = self.tokenizer(context)["input_ids"]
-            prompt = torch.tensor(prompt_ids, device=self.device, dtype=torch.long).unsqueeze(0)
-            
-            stop_tokens = gen_kwargs["until"]
-            max_gen = self.max_new_tokens
-            
-            generated_ids, _ = generate_with_prefix_cache_smc(
-                model=self.model,
-                prompt=prompt,
-                steps=self.steps,
-                gen_length=max_gen,
-                block_length=self.block_size,
-                temperature=self.temperature, 
-                remasking=self.remasking,
-                num_particles=self.num_particles,
-                threshold=self.threshold,
-                factor=self.factor,
-                mask_id=126336 # LLaDA default
-            )
-            
-            # generated_ids is (1, total_len) because generate_smc returns best particle
-            # Match eval_llada.py logic: Decode with special tokens, split, re-encode, decode without special tokens
-            generated_answer = self.tokenizer.decode(
-                generated_ids[0][prompt.shape[1] :], skip_special_tokens=False
-            )
-            
-            for stop_seq in stop_tokens:
-                if stop_seq in generated_answer:
-                    generated_answer = generated_answer.split(stop_seq)[0]
+            # Wrap entire instance processing in try-except to handle OOM
+            try:
+                context, gen_kwargs = instance.args 
+                
+                # Simple batching implementation (batch size 1 for safety with SMC)
+                prompt_ids = self.tokenizer(context)["input_ids"]
+                prompt = torch.tensor(prompt_ids, device=self.device, dtype=torch.long).unsqueeze(0)
+                
+                stop_tokens = gen_kwargs["until"]
+                max_gen = self.max_new_tokens
+                
+                generated_ids, _ = generate_with_prefix_cache_smc(
+                    model=self.model,
+                    prompt=prompt,
+                    steps=self.steps,
+                    gen_length=max_gen,
+                    block_length=self.block_size,
+                    temperature=self.temperature, 
+                    remasking=self.remasking,
+                    num_particles=self.num_particles,
+                    threshold=self.threshold,
+                    factor=self.factor,
+                    mask_id=126336 # LLaDA default
+                )
+                
+                # generated_ids is (1, total_len) because generate_smc returns best particle
+                # Match eval_llada.py logic: Decode with special tokens, split, re-encode, decode without special tokens
+                generated_answer = self.tokenizer.decode(
+                    generated_ids[0][prompt.shape[1] :], skip_special_tokens=False
+                )
+                
+                for stop_seq in stop_tokens:
+                    if stop_seq in generated_answer:
+                        generated_answer = generated_answer.split(stop_seq)[0]
 
-            generated_answer_ids = self.tokenizer(generated_answer)["input_ids"]
-            generated_answer = self.tokenizer.decode(
-                generated_answer_ids, skip_special_tokens=True
-            )
-            out.append(generated_answer)
+                generated_answer_ids = self.tokenizer(generated_answer)["input_ids"]
+                generated_answer = self.tokenizer.decode(
+                    generated_answer_ids, skip_special_tokens=True
+                )
+                out.append(generated_answer)
+            except torch.cuda.OutOfMemoryError as e:
+                print(f"[WARNING] OOM error, skipping this instance: {e}")
+                torch.cuda.empty_cache()
+                # Return placeholder answer to mark as wrong and continue
+                out.append("# OOM: skipped")
+                continue
             
             if self.accelerator is not None:
                 self.accelerator.wait_for_everyone()
