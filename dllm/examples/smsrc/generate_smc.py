@@ -213,15 +213,15 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
             # resampling
             ess = 1.0 / (weights.pow(2).sum())
             if num_block % 1 == 0 and ess < 0.5 * num_particles:
-                print(f"Resampling at block {num_block}, with ess: {ess:.2f}")
+                # print(f"Resampling at block {num_block}, with ess: {ess:.2f}")
                 k_idx = torch.multinomial(weights, num_samples=num_particles, replacement=True).squeeze(-1)
                 x = x[k_idx]; logp = logp[k_idx]; log_w = log_w[k_idx]
                 log_w -= log_w.mean()
                 # log_w.zero_()
 
         tps = block_length // i # tokens_per_step
-        print(f"num_block: {num_block+1}, block length: {block_length}, diffusion steps: {i}, tokens/step: {tps}, num_particles: {num_particles}")
-    print(logp[:, prompt.shape[1]:].exp().mean(dim=1))
+        # print(f"num_block: {num_block+1}, block length: {block_length}, diffusion steps: {i}, tokens/step: {tps}, num_particles: {num_particles}")
+    # print(logp[:, prompt.shape[1]:].exp().mean(dim=1))
     idx = torch.argmax(logp.sum(dim=1))
     return x[idx:idx+1], nfe
 
