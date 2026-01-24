@@ -271,17 +271,27 @@ class DreamSMC(LM):
         """Dynamically bind the appropriate generation mixin based on use_smc/use_cache flags."""
         if self.use_cache:
             if self.use_smc:
-                from dllm.pipelines.dream.models.generation_utils_smc_block import DreamGenerationMixin
+                from dllm.pipelines.dream.models.generation_utils_smc_block import DreamGenerationMixin, DreamGenerationConfig
                 eval_logger.info("Using SMC block-based generation with cache")
             else:
-                from dllm.pipelines.dream.models.generation_utils_block import DreamGenerationMixin
+                from dllm.pipelines.dream.models.generation_utils_block import DreamGenerationMixin, DreamGenerationConfig
                 eval_logger.info("Using block-based generation with cache (no SMC)")
         else:
-            from dllm.pipelines.dream.models.generation_utils import DreamGenerationMixin
+            from dllm.pipelines.dream.models.generation_utils import DreamGenerationMixin, DreamGenerationConfig
             eval_logger.info("Using standard generation (no cache)")
         
+        # Bind all generation methods from the mixin
         self.model.diffusion_generate = types.MethodType(DreamGenerationMixin.diffusion_generate, self.model)
         self.model._sample = types.MethodType(DreamGenerationMixin._sample, self.model)
+        self.model._prepare_generation_config = types.MethodType(DreamGenerationMixin._prepare_generation_config, self.model)
+        self.model._prepare_special_tokens = types.MethodType(DreamGenerationMixin._prepare_special_tokens, self.model)
+        self.model._validate_generated_length = types.MethodType(DreamGenerationMixin._validate_generated_length, self.model)
+        self.model._prepare_generated_length = types.MethodType(DreamGenerationMixin._prepare_generated_length, self.model)
+        # _expand_inputs_for_generation is a staticmethod, bind it directly
+        self.model._expand_inputs_for_generation = DreamGenerationMixin._expand_inputs_for_generation
+        
+        # Store the correct DreamGenerationConfig class for reference
+        self._generation_config_class = DreamGenerationConfig
 
     def tok_decode(self, tokens, skip_special_tokens=True):
         return self.tokenizer.decode(tokens, skip_special_tokens=skip_special_tokens)

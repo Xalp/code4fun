@@ -111,7 +111,7 @@ class DreamGenerationConfig(GenerationConfig):
 
         # Parameters that define the output variables of `generate`
         self.num_return_sequences: int = kwargs.pop("num_return_sequences", 1)
-        self.return_dict: bool = kwargs.pop("return_dict", False)
+        self.return_dict_in_generate: bool = kwargs.pop("return_dict_in_generate", False)
         self.output_history: bool = kwargs.pop("output_history", False)
 
         # Special tokens that can be used at generation time
