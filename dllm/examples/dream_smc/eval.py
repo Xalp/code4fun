@@ -353,10 +353,19 @@ class DreamSMC(LM):
 
         # decode
         self.generated_token_num += (generation_ids.sequences[0][prompt_ids.shape[1]:] != self.tokenizer.eos_token_id).sum().item()
-        responses = [
-            self.tokenizer.decode(g[len(p):].tolist()).split(self.tokenizer.eos_token)[0]
-            for p, g in zip(prompt_ids, generation_ids.sequences)
-        ]
+        responses = []
+        for p, g in zip(prompt_ids, generation_ids.sequences):
+            # Filter out mask tokens and invalid tokens before decoding
+            gen_tokens = g[len(p):].tolist()
+            # Remove mask tokens (typically the mask_token_id)
+            mask_token_id = getattr(self.tokenizer, 'mask_token_id', None)
+            if mask_token_id is not None:
+                gen_tokens = [t for t in gen_tokens if t != mask_token_id]
+            decoded = self.tokenizer.decode(gen_tokens, skip_special_tokens=True)
+            # Split by eos token if present
+            if self.tokenizer.eos_token and self.tokenizer.eos_token in decoded:
+                decoded = decoded.split(self.tokenizer.eos_token)[0]
+            responses.append(decoded)
         print('=' * 20)
         print('question: ', prompts[0][:200] + '...' if len(prompts[0]) > 200 else prompts[0])
         print('answer: ', responses[0][:200] + '...' if len(responses[0]) > 200 else responses[0])
