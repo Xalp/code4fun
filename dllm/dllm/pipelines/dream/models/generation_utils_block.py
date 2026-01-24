@@ -139,6 +139,16 @@ class DreamGenerationConfig(GenerationConfig):
     def validate(self, is_init=False):
         pass
 
+    @classmethod
+    def from_model_config(cls, model_config, **kwargs) -> "DreamGenerationConfig":
+        """
+        Instantiates a DreamGenerationConfig from a model config.
+        """
+        config_dict = model_config.to_dict() if hasattr(model_config, 'to_dict') else {}
+        config_dict.update(kwargs)
+        config_dict["_from_model_config"] = True
+        return cls(**config_dict)
+
 
 class DreamGenerationMixin:
     @staticmethod
