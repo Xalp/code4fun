@@ -101,15 +101,15 @@ fi
 
 # ===== Check if Results Already Exist =====
 # Skip evaluation if results.json already exists in output directory
-if [[ -d "$output_dir" ]]; then
-    # Check for any results.json file in the output directory
-    if ls "${output_dir}"/**/results*.json 1> /dev/null 2>&1 || ls "${output_dir}"/results*.json 1> /dev/null 2>&1; then
-        echo "========================================="
-        echo "[SKIP] Results already exist in: ${output_dir}"
-        echo "========================================="
-        exit 0
-    fi
-fi
+# if [[ -d "$output_dir" ]]; then
+#     # Check for any results.json file in the output directory
+#     if ls "${output_dir}"/**/results*.json 1> /dev/null 2>&1 || ls "${output_dir}"/results*.json 1> /dev/null 2>&1; then
+#         echo "========================================="
+#         echo "[SKIP] Results already exist in: ${output_dir}"
+#         echo "========================================="
+#         exit 0
+#     fi
+# fi
 
 # ===== Run Evaluation =====
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
