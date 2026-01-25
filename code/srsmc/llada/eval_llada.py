@@ -145,6 +145,10 @@ class LLaDAEvalHarness(LM):
     def world_size(self):
         return self._world_size
 
+    @property
+    def tokenizer_name(self) -> str:
+        return self.tokenizer.name_or_path.replace("/", "__")
+
     def _forward_process(self, batch, prompt_index):
         b, l = batch.shape
 
