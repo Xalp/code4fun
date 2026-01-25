@@ -80,6 +80,7 @@ class Dream(LM):
         resample_freq: Optional[int] = 1,
         dual_cache: Optional[bool] = False,
         save_dir: Optional[str] = None,
+        num_particles: Optional[int] = 4,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -215,6 +216,7 @@ class Dream(LM):
         self.dual_cache = dual_cache
         self.generated_token_num = 0
         self.save_dir = save_dir
+        self.num_particles = num_particles
     @property
     def batch_size(self):
         return self.batch_size_per_gpu
@@ -323,7 +325,8 @@ class Dream(LM):
             alg_temp=self.alg_temp,
             threshold=self.threshold,
             dual_cache=self.dual_cache,
-            resample_freq=self.resample_freq
+            resample_freq=self.resample_freq,
+            num_particles=self.num_particles
         )
 
         # decode
@@ -380,15 +383,20 @@ class Dream(LM):
                 pbar.update(len(contexts))
                 continue
             
-            responses = self._generate_batch(contexts)
-            if not self.escape_until:
-                for i, r in enumerate(responses):
-                    for s in gen_args[0]['until']:
-                        r = r.split(s)[0]
-                    responses[i] = r
-
-            # if self.rank == 0:
-            #     print(f"Context:\n{contexts[0]}\nResponse:\n{responses[0]}\n")
+            # OOM handling: catch OOM errors and return empty answers to continue evaluation
+            try:
+                responses = self._generate_batch(contexts)
+                if not self.escape_until:
+                    for i, r in enumerate(responses):
+                        for s in gen_args[0]['until']:
+                            r = r.split(s)[0]
+                        responses[i] = r
+            except torch.cuda.OutOfMemoryError as e:
+                print(f"[WARNING] OOM error, skipping this batch: {e}")
+                torch.cuda.empty_cache()
+                gc.collect()
+                # Return empty answers to let evaluation continue
+                responses = ["# OOM: skipped" for _ in contexts]
 
             res.extend(responses)
             pbar.update(len(contexts))
@@ -398,6 +406,10 @@ class Dream(LM):
                 for i, r in enumerate(responses):
                     with open(save_path, 'a', encoding='utf-8') as f:
                         f.write(json.dumps(r, ensure_ascii=False) + '\n')
+            
+            # Synchronize after each batch to prevent rank mismatch in distributed setting
+            if hasattr(self, 'accelerator') and self.accelerator is not None:
+                self.accelerator.wait_for_everyone()
 
         end_time = time.time()
         print(f"Time taken: {end_time - start_time} seconds")

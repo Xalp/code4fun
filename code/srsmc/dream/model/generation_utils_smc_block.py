@@ -364,7 +364,8 @@ class DreamGenerationMixin:
                 UserWarning,
             )
 
-        generation_config.num_return_sequences = 4  # num_particles
+        num_particles = kwargs.get("num_particles", 4)  # Default to 4 particles
+        generation_config.num_return_sequences = num_particles
         input_ids, attention_mask = self._expand_inputs_for_generation(
             expand_size=generation_config.num_return_sequences,
             input_ids=input_ids,
@@ -382,7 +383,8 @@ class DreamGenerationMixin:
             threshold=threshold,
             block_length=block_length,
             dual_cache=dual_cache,
-            resample_freq=resample_freq
+            resample_freq=resample_freq,
+            num_particles=num_particles
         )
         return result
 
@@ -394,7 +396,8 @@ class DreamGenerationMixin:
         threshold: Optional[float] = 0.9,
         block_length: Optional[int] = 32,
         dual_cache: bool = False,
-        resample_freq: Optional[int] = 1
+        resample_freq: Optional[int] = 1,
+        num_particles: Optional[int] = 4
     ) -> Union[DreamModelOutput, torch.LongTensor]:
         # init values
         
@@ -585,8 +588,10 @@ class DreamGenerationMixin:
                 if num_block % resample_freq == 0 and ess < 0.5 * num_particles:
                     print(f"Resampling at block {num_block}, with ess: {ess:.2f}")
                     k_idx = torch.multinomial(weights, num_samples=num_particles, replacement=True).squeeze(-1)
-                    x = x[k_idx]; log_p = log_p[k_idx]; log_w = log_w[k_idx] # log_w.zero_()
-                    log_w -= log_w.mean()
+                    x = x[k_idx]; log_p = log_p[k_idx]; 
+                    # log_w = log_w[k_idx] 
+                    log_w.zero_()
+                    # log_w -= log_w.mean()
 
             tps = block_length // i # tokens_per_step
             print(f"num_block: {num_block+1}, block length: {block_length}, diffusion steps: {i}, tokens/step: {tps}, num_particles: {num_particles}")
