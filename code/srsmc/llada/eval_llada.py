@@ -380,6 +380,27 @@ class LLaDAEvalHarness(LM):
                     else:
                         generated_answer, nfe = generate(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length, 
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
+                
+                if self.is_instruct and 'task_id' in req.doc and str(req.doc['task_id']).lower().startswith('humaneval'):
+                    generated_answer_ids = generated_answer[:, input_ids.shape[1]:]
+                    if self.show_speed:
+                        num_tokens += (generated_answer_ids != 126081).sum()
+                        num_nfe += nfe
+                    batched_generated_answer = [self.tokenizer.decode(generated_answer_ids[i], skip_special_tokens=True) for i in range(len(generated_answer_ids))]
+                else:
+                    batched_generated_answer = []
+                    for i in range(len(generated_answer)):
+                        generated_answer_i = self.tokenizer.decode(generated_answer[i][input_ids.shape[1]:], skip_special_tokens=False)
+                        for stop_seq in stop_tokens:
+                            if stop_seq in generated_answer_i:
+                                generated_answer_i = generated_answer_i.split(stop_seq)[0]
+                        generated_answer_ids = torch.tensor(self.tokenizer(generated_answer_i)["input_ids"])
+                        if self.show_speed:
+                            num_tokens += (generated_answer_ids != 126081).sum()
+                            num_nfe += nfe
+                        generated_answer_i = self.tokenizer.decode(generated_answer_ids, skip_special_tokens=True)
+                        batched_generated_answer.append(generated_answer_i)
+
             except torch.cuda.OutOfMemoryError as e:
                 print(f"[WARNING] OOM error, skipping this batch: {e}")
                 gc.collect()
@@ -388,36 +409,7 @@ class LLaDAEvalHarness(LM):
                 # 返回空答案，让评测继续
                 batched_generated_answer = ["OOM" for _ in batch]
                 nfe = 0
-                output.extend(batched_generated_answer)
-                if self.save_dir is not None:
-                    with open(save_path, 'a', encoding='utf-8') as f:
-                        for ans in batched_generated_answer:
-                            f.write(json.dumps(ans, ensure_ascii=False) + '\n')
-                # Still synchronize after OOM to prevent rank mismatch
-                if self.accelerator is not None:
-                    self.accelerator.wait_for_everyone()
-                continue
-
-            if self.is_instruct and 'task_id' in req.doc and str(req.doc['task_id']).lower().startswith('humaneval'):
-                generated_answer_ids = generated_answer[:, input_ids.shape[1]:]
-                if self.show_speed:
-                    num_tokens += (generated_answer_ids != 126081).sum()
-                    num_nfe += nfe
-                batched_generated_answer = [self.tokenizer.decode(generated_answer_ids[i], skip_special_tokens=True) for i in range(len(generated_answer_ids))]
-            else:
-                batched_generated_answer = []
-                for i in range(len(generated_answer)):
-                    generated_answer_i = self.tokenizer.decode(generated_answer[i][input_ids.shape[1]:], skip_special_tokens=False)
-                    for stop_seq in stop_tokens:
-                        if stop_seq in generated_answer_i:
-                            generated_answer_i = generated_answer_i.split(stop_seq)[0]
-                    generated_answer_ids = torch.tensor(self.tokenizer(generated_answer_i)["input_ids"])
-                    if self.show_speed:
-                        num_tokens += (generated_answer_ids != 126081).sum()
-                        num_nfe += nfe
-                    generated_answer_i = self.tokenizer.decode(generated_answer_ids, skip_special_tokens=True)
-                    batched_generated_answer.append(generated_answer_i)
-
+            
             # output.append(generated_answer)
             output.extend(batched_generated_answer)
 
