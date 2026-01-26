@@ -396,7 +396,7 @@ class Dream(LM):
                 torch.cuda.empty_cache()
                 gc.collect()
                 # Return empty answers to let evaluation continue
-                responses = ["# OOM: skipped" for _ in contexts]
+                responses = ["OOM" for _ in contexts]
 
             res.extend(responses)
             pbar.update(len(contexts))
