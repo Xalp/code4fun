@@ -44,9 +44,9 @@ done
 
 # ===== Compute Steps Based on Task =====
 # Use longer generation for math/mbpp
-if [[ "$task" == "math500" ]] || [[ "$task" == "mbpp" ]]; then
-    length=512
-fi
+# if [[ "$task" == "math500" ]] || [[ "$task" == "mbpp" ]]; then
+#     length=512
+# fi
 steps=$((length / block_length))
 
 # ===== Set Model Path =====
