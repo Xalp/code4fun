@@ -71,13 +71,8 @@ def build_predictions_instruct(
     return [
         [
             sanitize(
-                r,
-                "def" # mbpp usually doesn't have a fixed entry point name per doc easily available as 'entry_point', 
-                      # but sanitize checks for eof/syntax. 
-                      # Humaneval passes doc["entry_point"]. MBPP docs don't strictly have "entry_point" field in all versions.
-                      # Let's check if we can get away with just sanitizing.
-                      # Actually, looking at sanitize_utils.py (implied), it might need entry point.
-                      # Wait, MBPP samples are complete functions.
+                r.split("```python")[-1].split("```")[0].strip(),
+                entrypoint=None
             )
             for r in resp
         ]
