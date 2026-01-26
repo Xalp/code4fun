@@ -4,9 +4,9 @@ dataset_name: full
 unsafe_code: true
 output_type: generate_until
 test_split: test
-doc_to_text: "Read the following function signature and docstring, and fully implement the function described. Your response should only contain the code for this function.\n{{text}}\nYour code should pass these tests:\n\n{{test_list[0]}}\n{{test_list[1]}}\n{{test_list[2]}}"
+doc_to_text: !function utils.doc_to_text_instruct
 doc_to_target: "{{code}}\n```"
-gen_prefix: " Here is the completed function:\n```python\n"
+# gen_prefix: is handled in doc_to_text now
 target_delimiter: ""
 metric_list:
   - metric: !function utils.pass_at_1

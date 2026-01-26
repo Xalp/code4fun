@@ -68,16 +68,80 @@ def build_predictions(resps: list[list[str]], docs: list[dict]) -> list[list[str
 def build_predictions_instruct(
     resps: list[list[str]], docs: list[dict]
 ) -> list[list[str]]:
-    return [
-        [
-            sanitize(
-                r.split("```python")[-1].split("```")[0].strip(),
-                entrypoint=None
-            )
-            for r in resp
-        ]
-        for resp, doc in zip(resps, docs)
-    ]
+    results = []
+    for resp, doc in zip(resps, docs):
+        sanitized_resps = []
+        for r in resp:
+            # 1. Extract code block
+            # If model follows instruction, it might output "arg): body" or "```python\narg): body```"
+            # We strip markdown first.
+            if "```python" in r:
+                code = r.split("```python")[-1]
+                if "```" in code:
+                    code = code.split("```")[0]
+            elif "```" in r:
+                code = r.split("```")[1] 
+                if "```" in code:
+                    code = code.split("```")[0]
+            else:
+                code = r
+            
+            code = code.strip()
+
+            # 2. Extract expected function name from tests
+            target_name = None
+            if "test_list" in doc and len(doc["test_list"]) > 0:
+                match = re.search(r"assert\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", doc["test_list"][0])
+                if match:
+                    target_name = match.group(1)
+
+            # 3. Reconstruct if missing def (continuation)
+            if target_name and not code.startswith("def "):
+                 # Check if it looks like argument list continuation or just body
+                 # If prompt ended in 'def name(', model starts with 'arg1, arg2):'
+                 # We simply prepend the def start.
+                 # However, if code starts with ')', it implies 0 args?
+                 # Safest is to just prepend.
+                 code = f"def {target_name}({code}"
+            
+            # 4. Sanitize (now we have full code)
+            code = sanitize(code, entrypoint=None)
+
+            # 5. Alias check (if model wrote its own def with wrong name)
+            generated_name = None
+            try:
+                tree = ast.parse(code)
+                for node in tree.body:
+                    if isinstance(node, ast.FunctionDef):
+                        generated_name = node.name
+                        break 
+            except:
+                pass
+
+            if target_name and generated_name and target_name != generated_name:
+                code += f"\n{target_name} = {generated_name}\n"
+            
+            sanitized_resps.append(code)
+        results.append(sanitized_resps)
+    return results
+
+def doc_to_text_instruct(doc: dict) -> str:
+    instruction = "Read the following function signature and docstring, and fully implement the function described. Your response should only contain the code for this function."
+    text = doc.get('text', "")
+    test_list = doc.get('test_list', [])
+    
+    tests_str = ""
+    if len(test_list) > 0:
+        tests_str = "Your code should pass these tests:\n\n" + "\n".join(test_list[:3])
+    
+    func_name = "solution"
+    if len(test_list) > 0:
+        match = re.search(r"assert\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", test_list[0])
+        if match:
+            func_name = match.group(1)
+            
+    prefix = f" Here is the completed function:\n```python\ndef {func_name}("
+    return f"{instruction}\n{text}\n{tests_str}\n{prefix}"
 
 
 def list_fewshot_samples():
