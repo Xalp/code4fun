@@ -119,7 +119,7 @@ if [[ "$model_type" == "dream" ]]; then
     # Dream model
     cd "$BASE_DIR/dream"
     
-    model_args="pretrained=${model_path},max_new_tokens=${length},diffusion_steps=${steps},batch_size=1"
+    model_args="pretrained=${model_path},max_new_tokens=${length},diffusion_steps=${steps}"
     model_args="${model_args},temperature=${temperature},threshold=${threshold}"
     model_args="${model_args},use_cache=true,use_smc=${use_smc},num_particles=${num_particles}"
     model_args="${model_args},alg=confidence_threshold"
@@ -141,7 +141,7 @@ else
     # LLaDA or LLaDA-1.5
     cd "$BASE_DIR/llada"
     
-    model_args="model_path=${model_path},gen_length=${length},steps=${steps},block_length=${block_length},batch_size=4"
+    model_args="model_path=${model_path},gen_length=${length},steps=${steps},block_length=${block_length}"
     model_args="${model_args},temperature=${temperature},threshold=${threshold}"
     model_args="${model_args},use_cache=True,use_smc=${use_smc}"
     

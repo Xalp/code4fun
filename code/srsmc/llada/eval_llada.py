@@ -20,7 +20,6 @@ This file is inspired by the code from https://github.com/ML-GSAI/SMDM
 '''
 import accelerate
 import torch
-import gc
 import re
 from pathlib import Path
 import random
@@ -55,7 +54,7 @@ class LLaDAEvalHarness(LM):
         model_path='',
         mask_id=126336,
         max_length=4096,
-        batch_size=4,
+        batch_size=1,
         mc_num=128,
         is_check_greedy=True,
         steps=1024,
@@ -382,11 +381,6 @@ class LLaDAEvalHarness(LM):
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
             except torch.cuda.OutOfMemoryError as e:
                 print(f"[WARNING] OOM error, skipping this batch: {e}")
-                del batched_input_ids
-                if 'input_ids' in locals(): del input_ids
-                if 'attention_mask' in locals(): del attention_mask
-                if 'generated_answer' in locals(): del generated_answer
-                gc.collect()
                 torch.cuda.empty_cache()
                 # 返回空答案，让评测继续
                 batched_generated_answer = ["OOM" for _ in batch]
