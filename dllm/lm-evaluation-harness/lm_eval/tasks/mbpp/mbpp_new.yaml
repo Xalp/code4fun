@@ -4,8 +4,10 @@ dataset_name: full
 unsafe_code: true
 output_type: generate_until
 test_split: test
-doc_to_text: !function utils.doc_to_text_instruct
+process_docs: !function utils.process_docs_instruct
+doc_to_text: "{{instruct_prompt}}"
 doc_to_target: "{{code}}\n```"
+gen_prefix: "{{func_prefix}}"
 # gen_prefix: is handled in doc_to_text now
 target_delimiter: ""
 metric_list:

@@ -125,23 +125,30 @@ def build_predictions_instruct(
         results.append(sanitized_resps)
     return results
 
-def doc_to_text_instruct(doc: dict) -> str:
-    instruction = "Read the following function signature and docstring, and fully implement the function described. Your response should only contain the code for this function."
-    text = doc.get('text', "")
-    test_list = doc.get('test_list', [])
-    
-    tests_str = ""
-    if len(test_list) > 0:
-        tests_str = "Your code should pass these tests:\n\n" + "\n".join(test_list[:3])
-    
-    func_name = "solution"
-    if len(test_list) > 0:
-        match = re.search(r"assert\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", test_list[0])
-        if match:
-            func_name = match.group(1)
-            
-    prefix = f" Here is the completed function:\n```python\ndef {func_name}("
-    return f"{instruction}\n{text}\n{tests_str}\n{prefix}"
+def process_docs_instruct(dataset):
+    def _helper(doc):
+        # 1. Prompt (User)
+        instruction = "Read the following function signature and docstring, and fully implement the function described. Your response should only contain the code for this function."
+        text = doc.get('text', "")
+        test_list = doc.get('test_list', [])
+        
+        tests_str = ""
+        if len(test_list) > 0:
+            tests_str = "Your code should pass these tests:\n\n" + "\n".join(test_list[:3])
+        
+        doc["instruct_prompt"] = f"{instruction}\n{text}\n{tests_str}"
+
+        # 2. Prefix (Assistant)
+        func_name = "solution"
+        if len(test_list) > 0:
+            match = re.search(r"assert\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", test_list[0])
+            if match:
+                func_name = match.group(1)
+        
+        doc["func_prefix"] = f" Here is the completed function:\n```python\ndef {func_name}("
+        return doc
+
+    return dataset.map(_helper)
 
 
 def list_fewshot_samples():
