@@ -145,6 +145,24 @@ class LLaDAEvalHarness(LM):
     def world_size(self):
         return self._world_size
 
+    @property
+    def tokenizer_name(self) -> str:
+        return self.tokenizer.name_or_path.replace("/", "__")
+
+    def apply_chat_template(
+        self, chat_history, add_generation_prompt: bool = True
+    ) -> str:
+        """
+        Method to apply a chat template to a list of chat history between user and model.
+        """
+        chat_templated = self.tokenizer.apply_chat_template(
+            chat_history,
+            tokenize=False,
+            add_generation_prompt=add_generation_prompt,
+            continue_final_message=not add_generation_prompt,
+        )
+        return chat_templated
+
     def _forward_process(self, batch, prompt_index):
         b, l = batch.shape
 
