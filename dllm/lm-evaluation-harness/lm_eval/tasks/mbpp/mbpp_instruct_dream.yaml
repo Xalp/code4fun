@@ -15,6 +15,7 @@ metric_list:
 generation_kwargs:
   until:
     - "```"
+    - "\n# Test cases"
   do_sample: false
 num_fewshot: 3
 fewshot_config:
@@ -29,7 +30,6 @@ fewshot_config:
         def similar_elements(test_tup1, test_tup2):
             res = tuple(set(test_tup1) & set(test_tup2))
             return res
-        ```
       is_fewshot: true
 
     - text: "Write a python function to identify non-prime numbers."
@@ -45,7 +45,6 @@ fewshot_config:
                 if n % i == 0:
                     result = True
             return result
-        ```
       is_fewshot: true
 
     - text: "Write a function to find the largest integers from a given list of numbers using heap queue algorithm."
@@ -58,7 +57,6 @@ fewshot_config:
         def heap_queue_largest(nums, n):
             largest_nums = hq.nlargest(n, nums)
             return largest_nums
-        ```
       is_fewshot: true
 metadata:
   version: 1.0
