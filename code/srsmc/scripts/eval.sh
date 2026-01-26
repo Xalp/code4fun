@@ -65,8 +65,20 @@ fi
 case "$task" in
     gsm8k) num_fewshot=5; task_name="gsm8k" ;;
     math500) num_fewshot=4; task_name="minerva_math500" ;;
-    mbpp) num_fewshot=3; task_name="mbpp" ;;
-    humaneval) num_fewshot=0; task_name="humaneval" ;;
+    mbpp)
+        if [[ "$model_type" == "dream" ]]; then
+            num_fewshot=3; task_name="mbpp_instruct_dream"
+        else
+            num_fewshot=3; task_name="mbpp_llada_instruct"
+        fi
+        ;;
+    humaneval)
+        if [[ "$model_type" == "dream" ]]; then
+            num_fewshot=0; task_name="humaneval_instruct_dream"
+        else
+            num_fewshot=0; task_name="humaneval_instruct"
+        fi
+        ;;
     *) echo "Error: Unknown task: $task (must be gsm8k, math500, mbpp, or humaneval)"; exit 1 ;;
 esac
 

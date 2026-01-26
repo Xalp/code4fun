@@ -70,7 +70,6 @@ class LLaDAEvalHarness(LM):
         save_dir=None,
         show_speed=False,
         dual_cache=False,
-        num_particles=4,
         **kwargs,
     ):
         '''
@@ -138,7 +137,6 @@ class LLaDAEvalHarness(LM):
         self.save_dir = save_dir
         self.show_speed = show_speed
         self.dual_cache = dual_cache
-        self.num_particles = num_particles
     @property
     def rank(self):
         return self._rank
@@ -146,24 +144,6 @@ class LLaDAEvalHarness(LM):
     @property
     def world_size(self):
         return self._world_size
-
-    @property
-    def tokenizer_name(self) -> str:
-        return self.tokenizer.name_or_path.replace("/", "__")
-
-    def apply_chat_template(
-        self, chat_history, add_generation_prompt: bool = True
-    ) -> str:
-        """
-        Method to apply a chat template to a list of chat history between user and model.
-        """
-        chat_templated = self.tokenizer.apply_chat_template(
-            chat_history,
-            tokenize=False,
-            add_generation_prompt=add_generation_prompt,
-            continue_final_message=not add_generation_prompt,
-        )
-        return chat_templated
 
     def _forward_process(self, batch, prompt_index):
         b, l = batch.shape
@@ -370,14 +350,14 @@ class LLaDAEvalHarness(LM):
                     else:
                         if self.use_smc:
                             generated_answer, nfe = generate_with_prefix_cache_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length, 
-                                            temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor, num_particles=self.num_particles)
+                                            temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
                         else:
                             generated_answer, nfe = generate_with_prefix_cache(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length, 
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
                 else:
                     if self.use_smc:
                         generated_answer, nfe = generate_with_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length, 
-                                            temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor, num_particles=self.num_particles)
+                                            temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
                     else:
                         generated_answer, nfe = generate(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length, 
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
