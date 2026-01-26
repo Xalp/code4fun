@@ -1,0 +1,21 @@
+task: mbpp-new
+dataset_path: google-research-datasets/mbpp
+dataset_name: full
+unsafe_code: true
+output_type: generate_until
+test_split: test
+doc_to_text: "Read the following function signature and docstring, and fully implement the function described. Your response should only contain the code for this function.\n{{text}}"
+doc_to_target: "{{code}}\n```"
+gen_prefix: "```python\n"
+target_delimiter: ""
+metric_list:
+  - metric: !function utils.pass_at_1
+    aggregation: mean
+    higher_is_better: true
+generation_kwargs:
+  until:
+    - "```"
+  do_sample: false
+num_fewshot: 0
+metadata:
+  version: 2.0

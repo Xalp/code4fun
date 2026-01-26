@@ -1,0 +1,14 @@
+include: minerva_math_algebra.yaml
+task: minerva_math500-new
+dataset_name: default
+dataset_path: HuggingFaceH4/MATH-500
+test_split: test
+doc_to_text: "{{problem}}\nPlease reason step by step, and put your final answer within \\boxed{}."
+num_fewshot: 0
+metadata:
+  version: 3.0
+generation_kwargs:
+  until:
+    - "Problem:"
+    - "</s>"
+    - "<|im_end|>"

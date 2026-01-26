@@ -1,0 +1,9 @@
+include: gsm8k.yaml
+task: gsm8k-new
+doc_to_text: "{{question}}\nPlease reason step by step, and put your final answer within \\boxed{}."
+num_fewshot: 0
+generation_kwargs:
+  until:
+    - "</s>"
+    - "<|im_end|>"
+    - "Question:"
