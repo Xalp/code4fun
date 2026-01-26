@@ -38,6 +38,7 @@ from generate_smc import generate as generate_with_smc, generate_with_prefix_cac
 from model.modeling_llada import LLaDAModelLM
 import json
 import time
+import gc
 def set_seed(seed):
     torch.manual_seed(seed)
     random.seed(seed)
@@ -381,7 +382,9 @@ class LLaDAEvalHarness(LM):
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
             except torch.cuda.OutOfMemoryError as e:
                 print(f"[WARNING] OOM error, skipping this batch: {e}")
+                gc.collect()
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()
                 # 返回空答案，让评测继续
                 batched_generated_answer = ["OOM" for _ in batch]
                 nfe = 0

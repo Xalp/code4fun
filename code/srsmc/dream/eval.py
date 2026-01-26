@@ -394,6 +394,7 @@ class Dream(LM):
             except torch.cuda.OutOfMemoryError as e:
                 print(f"[WARNING] OOM error, skipping this batch: {e}")
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()
                 gc.collect()
                 # Return empty answers to let evaluation continue
                 responses = ["OOM" for _ in contexts]
