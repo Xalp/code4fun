@@ -5,7 +5,7 @@ unsafe_code: true
 output_type: generate_until
 test_split: test
 doc_to_text: "You are an expert Python programmer, and here is your task: {{text}} Your code should pass these tests:\n\n{{test_list[0]}}\n{{test_list[1]}}\n{{test_list[2]}}"
-doc_to_target: "{% if is_fewshot is defined %}{{code}}\n[DONE]{% else %}{{test_list[0]}}\n{{test_list[1]}}\n{{test_list[2]}}{% endif %}"
+doc_to_target: "{{code}}\n```"
 gen_prefix: "Here is the completed function:\n```python\n"
 target_delimiter: ""
 metric_list:
@@ -26,11 +26,10 @@ fewshot_config:
         - "assert similar_elements((1, 2, 3, 4),(5, 4, 3, 7)) == (3, 4)"
         - "assert similar_elements((11, 12, 14, 13),(17, 15, 14, 13)) == (13, 14)"
       code: |
-        [BEGIN]
-        'def similar_elements(test_tup1, test_tup2):
+      code: |
+        def similar_elements(test_tup1, test_tup2):
             res = tuple(set(test_tup1) & set(test_tup2))
-            return res'
-        [DONE]
+            return res
 
     - text: "Write a python function to identify non-prime numbers."
       test_list:
@@ -38,15 +37,13 @@ fewshot_config:
         - "assert is_not_prime(10) == True"
         - "assert is_not_prime(35) == True"
       code: |
-        [BEGIN]
-        'import math
+        import math
         def is_not_prime(n):
             result = False
             for i in range(2,int(math.sqrt(n)) + 1):
                 if n % i == 0:
                     result = True
-            return result'
-        [DONE]
+            return result
 
     - text: "Write a function to find the largest integers from a given list of numbers using heap queue algorithm."
       test_list:
@@ -54,11 +51,9 @@ fewshot_config:
         - "assert heap_queue_largest([25, 35, 22, 85, 14, 65, 75, 22, 58],2)==[85, 75]"
         - "assert heap_queue_largest([25, 35, 22, 85, 14, 65, 75, 22, 58],5)==[85, 75, 65, 58, 35]"
       code: |
-        [BEGIN]
-        'import heapq as hq
+        import heapq as hq
         def heap_queue_largest(nums, n):
             largest_nums = hq.nlargest(n, nums)
-            return largest_nums'
-        [DONE]
+            return largest_nums
 metadata:
   version: 1.0
