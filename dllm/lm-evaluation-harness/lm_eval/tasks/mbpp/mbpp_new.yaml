@@ -8,6 +8,13 @@ doc_to_text: "Read the following function signature and docstring, and fully imp
 doc_to_target: "{{code}}\n```"
 gen_prefix: " Here is the completed function:\n```python\n"
 target_delimiter: ""
+filter_list:
+  - name: "sanitize"
+    filter:
+      - function: !function utils.sanitize_code
+  - name: "take_first"
+    filter:
+      - function: "take_first"
 metric_list:
   - metric: !function utils.pass_at_1
     aggregation: mean

@@ -1,4 +1,5 @@
 import re
+import ast
 from typing import Union
 
 import evaluate as hf_evaluate
@@ -59,7 +60,46 @@ class LLaDAExtractCodeBlocks:
 
         return [_extract_one(r) for r in resps]
 
+        return [_extract_one(r) for r in resps]
 
+
+def sanitize_code(resps: List[str], docs: List[dict]) -> List[str]:
+    """
+    Extracts code and strips docstrings/comments.
+    """
+    cleaned_resps = []
+    for r in resps:
+        # 1. Extract block if exists
+        code = extract_code_blocks(r)
+        if not code:
+            code = r # Fallback to raw if no block found (though extract handles that)
+            
+        # 2. Strip comments/docstrings via AST
+        try:
+            parsed = ast.parse(code)
+            for node in ast.walk(parsed):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
+                    continue
+                if not len(node.body):
+                    continue
+                if not isinstance(node.body[0], ast.Expr):
+                    continue
+                if not hasattr(node.body[0], 'value') or not isinstance(node.body[0].value, (ast.Str, ast.Constant)):
+                    continue
+                if isinstance(node.body[0].value, str) or (isinstance(node.body[0].value, ast.Constant) and isinstance(node.body[0].value.value, str)):
+                     # It's a docstring, remove it
+                     node.body.pop(0)
+            
+            # unparse removes comments (lines starting with #) as well
+            if hasattr(ast, 'unparse'):
+                 code = ast.unparse(parsed)
+            # For older python < 3.9, ast.unparse might not exist, but user environment likely new.
+        except Exception:
+            pass # process what we can, ignore parse errors
+            
+        cleaned_resps.append(code)
+    
+    return cleaned_resps
 
 def build_predictions(resps: list[list[str]], docs: list[dict]) -> list[list[str]]:
     return [[extract_code_blocks(r) for r in resp] for resp in resps]
