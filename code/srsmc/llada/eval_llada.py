@@ -403,9 +403,7 @@ class LLaDAEvalHarness(LM):
 
             except torch.cuda.OutOfMemoryError as e:
                 print(f"[WARNING] OOM error, skipping this batch: {e}")
-                gc.collect()
                 torch.cuda.empty_cache()
-                torch.cuda.synchronize()
                 # 返回空答案，让评测继续
                 batched_generated_answer = ["OOM" for _ in batch]
                 nfe = 0

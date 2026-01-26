@@ -82,6 +82,11 @@ if [[ -z "$output_dir" ]]; then
     output_dir="./results/${model_type}/${task}/${smc_label}_t${temperature}"
 fi
 
+# Ensure save_dir is set for incremental saving/resuming
+if [[ -z "$save_dir" ]]; then
+    save_dir="${output_dir}/saved_generations"
+fi
+
 # ===== Print Configuration =====
 echo "========================================="
 echo "SMC Evaluation Configuration"
