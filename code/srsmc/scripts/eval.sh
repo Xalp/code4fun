@@ -81,7 +81,7 @@ else
 fi
 
 if [[ -z "$output_dir" ]]; then
-    output_dir="./results/${model_type}/${task}/${smc_label}_t${temperature}"
+    output_dir="./results_jan27/${model_type}/${task}/${smc_label}_t${temperature}"
 fi
 
 # Ensure save_dir is set for incremental saving/resuming ONLY if --save is passed
