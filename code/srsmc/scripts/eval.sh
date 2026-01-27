@@ -68,7 +68,7 @@ case "$task" in
     gsm8k) num_fewshot=5; task_name="gsm8k-cot-dream" ;;
     math500) num_fewshot=4; task_name="minerva_math500" ;;
     mbpp) num_fewshot=3; task_name="mbpp_instruct_dream" ;;
-    humaneval) num_fewshot=0; task_name="humaneval-instruct-new" ;;
+    humaneval) num_fewshot=0; task_name="humaneval_instruct_dream" ;;
     *) echo "Error: Unknown task: $task (must be gsm8k, math500, mbpp, or humaneval)"; exit 1 ;;
 esac
 
