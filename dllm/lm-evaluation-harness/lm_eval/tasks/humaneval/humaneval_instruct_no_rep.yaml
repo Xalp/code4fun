@@ -1,5 +1,5 @@
 include: humaneval.yaml
-task: humaneval_instruct_dream
+task: humaneval_instruct_no_rep
 doc_to_text: "Write a solution to the following problem and make sure that it passes the tests."
 gen_prefix: "Here is the completed function:\n```python\n{{prompt}}\n"
 filter_list:
