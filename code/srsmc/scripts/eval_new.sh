@@ -23,6 +23,7 @@ threshold=0.9
 output_dir=""
 limit=""
 save_dir=""
+save="false"
 
 # ===== Argument Parsing =====
 while [[ $# -gt 0 ]]; do
@@ -38,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --output_dir) output_dir="$2"; shift 2 ;;
     --limit) limit="$2"; shift 2 ;;
     --save_dir) save_dir="$2"; shift 2 ;;
+    --save) save="true"; shift 1 ;;
     *) echo "Error: Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -64,7 +66,7 @@ fi
 # All are 0-shot now
 num_fewshot=0
 case "$task" in
-    gsm8k) task_name="gsm8k-new" ;;
+    gsm8k) task_name="gsm8k-cot-dream"; num_fewshot=5 ;;
     math500) task_name="minerva_math500-new" ;;
     mbpp) task_name="mbpp-new" ;;
     humaneval) task_name="humaneval-instruct-new" ;;
@@ -83,7 +85,7 @@ if [[ -z "$output_dir" ]]; then
     output_dir="./results_new/${model_type}/${task}/${smc_label}_t${temperature}"
 fi
 
-if [[ -z "$save_dir" ]]; then
+if [[ "$save" == "true" ]] && [[ -z "$save_dir" ]]; then
     save_dir="${output_dir}/saved_generations"
 fi
 
