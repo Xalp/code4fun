@@ -23,6 +23,7 @@ threshold=0.9
 output_dir=""
 limit=""
 save_dir=""
+save="false"
 
 # ===== Argument Parsing =====
 while [[ $# -gt 0 ]]; do
@@ -38,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --output_dir) output_dir="$2"; shift 2 ;;
     --limit) limit="$2"; shift 2 ;;
     --save_dir) save_dir="$2"; shift 2 ;;
+    --save) save="true"; shift 1 ;;
     *) echo "Error: Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -63,10 +65,10 @@ fi
 
 # ===== Set Task-Specific Parameters =====
 case "$task" in
-    gsm8k) num_fewshot=5; task_name="gsm8k" ;;
+    gsm8k) num_fewshot=5; task_name="gsm8k-cot-dream" ;;
     math500) num_fewshot=4; task_name="minerva_math500" ;;
     mbpp) num_fewshot=3; task_name="mbpp_instruct_dream" ;;
-    humaneval) num_fewshot=0; task_name="humaneval_instruct_dream" ;;
+    humaneval) num_fewshot=0; task_name="humaneval-instruct-new" ;;
     *) echo "Error: Unknown task: $task (must be gsm8k, math500, mbpp, or humaneval)"; exit 1 ;;
 esac
 
@@ -82,8 +84,8 @@ if [[ -z "$output_dir" ]]; then
     output_dir="./results/${model_type}/${task}/${smc_label}_t${temperature}"
 fi
 
-# Ensure save_dir is set for incremental saving/resuming
-if [[ -z "$save_dir" ]]; then
+# Ensure save_dir is set for incremental saving/resuming ONLY if --save is passed
+if [[ "$save" == "true" ]] && [[ -z "$save_dir" ]]; then
     save_dir="${output_dir}/saved_generations"
 fi
 
