@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import os
 from transformers import AutoTokenizer, AutoModel
 from model.modeling_llada import LLaDAModelLM
+import json
+import os
 
 def add_gumbel_noise(logits, temperature):
     '''
@@ -138,6 +140,10 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
     # weight initialization in log-space
     logp = torch.zeros_like(x, dtype=torch.float32, device=x.device)
     log_w = torch.zeros(num_particles).to(model.device)
+    particle_ids = torch.arange(num_particles, device=model.device)
+    trace_file = os.environ.get("SMC_TRACE_FILE", None)
+    if trace_file:
+        trace_file = f"{trace_file}_pid{os.getpid()}.jsonl"
 
     assert gen_length % block_length == 0
     num_blocks = gen_length // block_length
@@ -206,6 +212,8 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
             i += 1
 
         # SMC Resampling
+        resampled = False
+        selected_indices = None
         if num_particles > 1:
             weights = torch.exp(log_w - log_w.max())
             weights = weights / weights.sum()
@@ -218,6 +226,27 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
                 x = x[k_idx]; logp = logp[k_idx]; log_w = log_w[k_idx]
                 log_w -= log_w.mean()
                 # log_w.zero_()
+                
+                # Update particle lineage and trace
+                particle_ids = particle_ids[k_idx]
+                resampled = True
+                selected_indices = k_idx.tolist()
+
+        if trace_file:
+            # Calculate current log likelihoods of the sequences (approx based on logp so far)
+            # logp stores log prob of tokens.
+            current_log_probs = logp.sum(dim=1).tolist()
+            
+            trace_entry = {
+                "num_block": num_block,
+                "particle_ids": particle_ids.tolist(),
+                "log_probs": current_log_probs,
+                "log_weights": log_w.tolist(),
+                "resampled": resampled,
+                "selected_indices": selected_indices
+            }
+            with open(trace_file, "a") as f:
+                f.write(json.dumps(trace_entry) + "\n")
 
         tps = block_length // i # tokens_per_step
         print(f"num_block: {num_block+1}, block length: {block_length}, diffusion steps: {i}, tokens/step: {tps}, num_particles: {num_particles}")
