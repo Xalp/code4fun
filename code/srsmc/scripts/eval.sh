@@ -24,6 +24,7 @@ output_dir=""
 limit=""
 save_dir=""
 save="false"
+seed=""
 
 # ===== Argument Parsing =====
 while [[ $# -gt 0 ]]; do
@@ -40,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --limit) limit="$2"; shift 2 ;;
     --save_dir) save_dir="$2"; shift 2 ;;
     --save) save="true"; shift 1 ;;
+    --seed) seed="$2"; shift 2 ;;
     *) echo "Error: Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -135,7 +137,11 @@ if [[ "$model_type" == "dream" ]]; then
         model_args="${model_args},save_dir=${save_dir}"
     fi
     
-    CMD="accelerate launch eval.py --model dream --tasks ${task_name} --num_fewshot ${num_fewshot}"
+    if [[ -n "$seed" ]]; then
+        CMD="accelerate launch --seed ${seed} eval.py --model dream --tasks ${task_name} --num_fewshot ${num_fewshot}"
+    else
+        CMD="accelerate launch eval.py --model dream --tasks ${task_name} --num_fewshot ${num_fewshot}"
+    fi
     CMD="${CMD} ${common_args} --model_args \"${model_args}\""
     
     if [[ "$task" == "humaneval" ]] || [[ "$task" == "mbpp" ]]; then
@@ -156,7 +162,11 @@ else
         model_args="${model_args},save_dir=${save_dir}"
     fi
     
-    CMD="accelerate launch eval_llada.py --model llada_dist --tasks ${task_name} --num_fewshot ${num_fewshot}"
+    if [[ -n "$seed" ]]; then
+        CMD="accelerate launch --seed ${seed} eval_llada.py --model llada_dist --tasks ${task_name} --num_fewshot ${num_fewshot}"
+    else
+        CMD="accelerate launch eval_llada.py --model llada_dist --tasks ${task_name} --num_fewshot ${num_fewshot}"
+    fi
     CMD="${CMD} ${common_args} --model_args \"${model_args}\""
     
     if [[ "$task" == "humaneval" ]] || [[ "$task" == "mbpp" ]]; then
