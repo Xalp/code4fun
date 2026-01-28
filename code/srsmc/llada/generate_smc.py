@@ -211,9 +211,15 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
 
             i += 1
 
+        if trace_file:
+            # Capture state BEFORE resampling modifies x and logp
+            # This represents the "End of Period" state (Pre-Resample)
+            current_log_probs = logp.sum(dim=1).tolist()
+
         # SMC Resampling
         resampled = False
-        selected_indices = None
+        selected_indices = list(range(num_particles)) # Default identity if no resampling
+        
         if num_particles > 1:
             weights = torch.exp(log_w - log_w.max())
             weights = weights / weights.sum()
@@ -233,14 +239,10 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
                 selected_indices = k_idx.tolist()
 
         if trace_file:
-            # Calculate current log likelihoods of the sequences (approx based on logp so far)
-            # logp stores log prob of tokens.
-            current_log_probs = logp.sum(dim=1).tolist()
-            
             trace_entry = {
                 "num_block": num_block,
                 "particle_ids": particle_ids.tolist(),
-                "log_probs": current_log_probs,
+                "log_probs": current_log_probs, # This is PRE-RESAMPLE
                 "log_weights": log_w.tolist(),
                 "resampled": resampled,
                 "selected_indices": selected_indices
