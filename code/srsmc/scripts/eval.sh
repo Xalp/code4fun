@@ -24,7 +24,9 @@ output_dir=""
 limit=""
 save_dir=""
 save="false"
+
 seed=""
+show_speed="false"
 
 # ===== Argument Parsing =====
 while [[ $# -gt 0 ]]; do
@@ -42,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --save_dir) save_dir="$2"; shift 2 ;;
     --save) save="true"; shift 1 ;;
     --seed) seed="$2"; shift 2 ;;
+    --show_speed) show_speed="true"; shift 1 ;;
     *) echo "Error: Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -133,6 +136,10 @@ if [[ "$model_type" == "dream" ]]; then
     model_args="${model_args},use_cache=true,use_smc=${use_smc},num_particles=${num_particles}"
     model_args="${model_args},alg=confidence_threshold"
     
+    if [[ "$show_speed" == "true" ]]; then
+        model_args="${model_args},show_speed=True"
+    fi
+    
     if [[ -n "$save_dir" ]]; then
         model_args="${model_args},save_dir=${save_dir}"
     fi
@@ -157,6 +164,12 @@ else
     model_args="model_path=${model_path},gen_length=${length},steps=${steps},block_length=${block_length}"
     model_args="${model_args},temperature=${temperature},threshold=${threshold}"
     model_args="${model_args},use_cache=True,use_smc=${use_smc}"
+    
+    model_args="${model_args},use_cache=True,use_smc=${use_smc}"
+    
+    if [[ "$show_speed" == "true" ]]; then
+        model_args="${model_args},show_speed=True"
+    fi
     
     if [[ -n "$save_dir" ]]; then
         model_args="${model_args},save_dir=${save_dir}"
