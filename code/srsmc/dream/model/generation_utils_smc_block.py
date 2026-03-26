@@ -375,6 +375,7 @@ class DreamGenerationMixin:
         block_length = kwargs.get("block_length", 32)
         dual_cache = kwargs.get("dual_cache", False)
         resample_freq = kwargs.get("resample_freq", 1)
+        resample_strategy = kwargs.get("resample_strategy", "adaptive")
 
         result = self._sample(
             input_ids,
@@ -384,7 +385,8 @@ class DreamGenerationMixin:
             block_length=block_length,
             dual_cache=dual_cache,
             resample_freq=resample_freq,
-            num_particles=num_particles
+            num_particles=num_particles,
+            resample_strategy=resample_strategy,
         )
         return result
 
@@ -397,7 +399,8 @@ class DreamGenerationMixin:
         block_length: Optional[int] = 32,
         dual_cache: bool = False,
         resample_freq: Optional[int] = 1,
-        num_particles: Optional[int] = 4
+        num_particles: Optional[int] = 4,
+        resample_strategy: str = "adaptive",
     ) -> Union[DreamModelOutput, torch.LongTensor]:
         # init values
         
@@ -580,18 +583,21 @@ class DreamGenerationMixin:
                     break
 
             # SMC Resampling
-            if num_particles > 1:
+            if num_particles > 1 and resample_strategy != "never":
                 weights = torch.exp(log_w - log_w.max())
                 weights = weights / weights.sum()
-                # resampling
                 ess = 1.0 / (weights.pow(2).sum())
-                if num_block % resample_freq == 0 and ess < 0.5 * num_particles:
-                    print(f"Resampling at block {num_block}, with ess: {ess:.2f}")
-                    k_idx = torch.multinomial(weights, num_samples=num_particles, replacement=True).squeeze(-1)
-                    x = x[k_idx]; log_p = log_p[k_idx]; 
-                    # log_w = log_w[k_idx] 
+                should_resample = (resample_strategy == "deterministic") or (num_block % resample_freq == 0 and ess < 0.5 * num_particles)
+                if should_resample:
+                    if resample_strategy == "deterministic":
+                        best_idx = torch.argmax(log_w)
+                        k_idx = best_idx.repeat(num_particles)
+                        print(f"Beam select at block {num_block}, best particle: {best_idx.item()}")
+                    else:
+                        k_idx = torch.multinomial(weights, num_samples=num_particles, replacement=True).squeeze(-1)
+                        print(f"Resampling at block {num_block}, with ess: {ess:.2f}")
+                    x = x[k_idx]; log_p = log_p[k_idx];
                     log_w.zero_()
-                    # log_w -= log_w.mean()
 
             tps = block_length // i # tokens_per_step
             print(f"num_block: {num_block+1}, block length: {block_length}, diffusion steps: {i}, tokens/step: {tps}, num_particles: {num_particles}")

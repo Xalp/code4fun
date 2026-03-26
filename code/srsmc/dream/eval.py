@@ -219,6 +219,7 @@ class Dream(LM):
         self.save_dir = save_dir
         self.num_particles = num_particles
         self.cfg_scale = float(cfg_scale)
+        self.resample_strategy = kwargs.get('resample_strategy', 'adaptive')
     @property
     def batch_size(self):
         return self.batch_size_per_gpu
@@ -330,6 +331,7 @@ class Dream(LM):
             resample_freq=self.resample_freq,
             num_particles=self.num_particles,
             cfg_scale=self.cfg_scale,
+            resample_strategy=self.resample_strategy,
         )
 
         # decode

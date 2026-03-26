@@ -45,7 +45,8 @@ def get_num_transfer_tokens(mask_index, steps):
 
 @ torch.inference_mode()
 def generate(model, prompt, steps=128, gen_length=128, block_length=128, temperature=0.,
-             remasking='low_confidence', mask_id=126336, threshold=None, factor=None, num_particles=4):
+             remasking='low_confidence', mask_id=126336, threshold=None, factor=None, num_particles=4,
+             resample_strategy="adaptive"):
     '''
     Args:
         model: Mask predictor.
@@ -97,20 +98,26 @@ def generate(model, prompt, steps=128, gen_length=128, block_length=128, tempera
             nfe += 1
 
         # SMC Resampling
-        if num_particles > 1:
+        if num_particles > 1 and resample_strategy != "never":
             # weighting
             weights = torch.exp(log_w - log_w.max())
             weights = weights / weights.sum()
 
             # resampling
             ess = 1.0 / (weights.pow(2).sum())
-            if num_block % 1 == 0 and ess < 0.5 * num_particles:
-                print(f"Normal Resampling at block {num_block}, with ess: {ess:.2f}")
-                k_idx = torch.multinomial(weights, num_samples=num_particles, replacement=True).squeeze(-1)
+            should_resample = (resample_strategy == "deterministic") or (ess < 0.5 * num_particles)
+            if num_block % 1 == 0 and should_resample:
+                if resample_strategy == "deterministic":
+                    # Beam search: duplicate the best particle
+                    best_idx = torch.argmax(log_w)
+                    k_idx = best_idx.repeat(num_particles)
+                    print(f"Beam select at block {num_block}, best particle: {best_idx.item()}")
+                else:
+                    # SMC: multinomial resampling
+                    k_idx = torch.multinomial(weights, num_samples=num_particles, replacement=True).squeeze(-1)
+                    print(f"Normal Resampling at block {num_block}, with ess: {ess:.2f}")
                 x = x[k_idx]; logp = logp[k_idx];
-                # log_w = log_w[k_idx] 
                 log_w.zero_()
-                # log_w -= log_w.mean()
 
         tps = block_length // i # tokens_per_step
         print(f"num_block: {num_block+1}, block length: {block_length}, diffusion steps: {i}, tokens/step: {tps}, num_particles: {num_particles}")
@@ -121,7 +128,8 @@ def generate(model, prompt, steps=128, gen_length=128, block_length=128, tempera
 
 @ torch.inference_mode()
 def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, block_length=128, temperature=0.,
-             remasking='low_confidence', mask_id=126336, threshold=None, factor=None, num_particles=4):
+             remasking='low_confidence', mask_id=126336, threshold=None, factor=None, num_particles=4,
+             resample_strategy="adaptive"):
     '''
     Args:
         model: Mask predictor.
@@ -219,20 +227,23 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
         # SMC Resampling
         resampled = False
         selected_indices = list(range(num_particles)) # Default identity if no resampling
-        
-        if num_particles > 1:
+
+        if num_particles > 1 and resample_strategy != "never":
             weights = torch.exp(log_w - log_w.max())
             weights = weights / weights.sum()
-            # weights = torch.softmax(log_w, dim=0)
-            # resampling
             ess = 1.0 / (weights.pow(2).sum())
-            if num_block % 1 == 0 and ess < 0.5 * num_particles:
-                print(f"Resampling at block {num_block}, with ess: {ess:.2f}")
-                k_idx = torch.multinomial(weights, num_samples=num_particles, replacement=True).squeeze(-1)
+            should_resample = (resample_strategy == "deterministic") or (ess < 0.5 * num_particles)
+            if num_block % 1 == 0 and should_resample:
+                if resample_strategy == "deterministic":
+                    best_idx = torch.argmax(log_w)
+                    k_idx = best_idx.repeat(num_particles)
+                    print(f"Beam select at block {num_block}, best particle: {best_idx.item()}")
+                else:
+                    k_idx = torch.multinomial(weights, num_samples=num_particles, replacement=True).squeeze(-1)
+                    print(f"Resampling at block {num_block}, with ess: {ess:.2f}")
                 x = x[k_idx]; logp = logp[k_idx]; log_w = log_w[k_idx]
                 log_w -= log_w.mean()
-                # log_w.zero_()
-                
+
                 # Update particle lineage and trace
                 particle_ids = particle_ids[k_idx]
                 resampled = True

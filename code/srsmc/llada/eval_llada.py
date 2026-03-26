@@ -35,6 +35,7 @@ import os
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 from generate import generate, generate_with_prefix_cache, generate_with_dual_cache
 from generate_smc import generate as generate_with_smc, generate_with_prefix_cache_smc
+from generate_mcmc import generate_mcmc
 from model.modeling_llada import LLaDAModelLM
 import json
 import time
@@ -140,6 +141,8 @@ class LLaDAEvalHarness(LM):
         self.show_speed = show_speed
         self.dual_cache = dual_cache
         self.cfg_scale = float(cfg_scale)
+        self.resample_strategy = kwargs.get('resample_strategy', 'adaptive')
+        self.mcmc_steps = int(kwargs.get('mcmc_steps', 0))
     @property
     def rank(self):
         return self._rank
@@ -364,7 +367,11 @@ class LLaDAEvalHarness(LM):
 
                 stop_tokens = req.args[1]['until']
                 input_ids = batched_input_ids
-                if self.cfg_scale > 0:
+                if self.mcmc_steps > 0:
+                    generated_answer, nfe = generate_mcmc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
+                                        temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor,
+                                        mcmc_steps=self.mcmc_steps)
+                elif self.cfg_scale > 0:
                     # CFG requires non-cache path for correctness
                     generated_answer, nfe = generate(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                         temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor, cfg_scale=self.cfg_scale)
@@ -375,14 +382,16 @@ class LLaDAEvalHarness(LM):
                     else:
                         if self.use_smc:
                             generated_answer, nfe = generate_with_prefix_cache_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
-                                            temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
+                                            temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor,
+                                            resample_strategy=self.resample_strategy)
                         else:
                             generated_answer, nfe = generate_with_prefix_cache(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
                 else:
                     if self.use_smc:
                         generated_answer, nfe = generate_with_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
-                                            temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
+                                            temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor,
+                                            resample_strategy=self.resample_strategy)
                     else:
                         generated_answer, nfe = generate(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)

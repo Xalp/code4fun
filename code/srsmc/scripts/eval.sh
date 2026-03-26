@@ -28,6 +28,8 @@ save="false"
 seed=""
 show_speed="false"
 cfg_scale=""
+resample_strategy=""
+mcmc_steps=""
 
 # ===== Argument Parsing =====
 while [[ $# -gt 0 ]]; do
@@ -47,6 +49,8 @@ while [[ $# -gt 0 ]]; do
     --seed) seed="$2"; shift 2 ;;
     --show_speed) show_speed="true"; shift 1 ;;
     --cfg_scale) cfg_scale="$2"; shift 2 ;;
+    --resample_strategy) resample_strategy="$2"; shift 2 ;;
+    --mcmc_steps) mcmc_steps="$2"; shift 2 ;;
     *) echo "Error: Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -81,10 +85,18 @@ esac
 
 # ===== Set Output Directory =====
 smc_label=""
-if [[ -n "$cfg_scale" ]]; then
+if [[ -n "$mcmc_steps" ]]; then
+    smc_label="mcmc${mcmc_steps}"
+elif [[ -n "$cfg_scale" ]]; then
     smc_label="cfg${cfg_scale}"
 elif [[ "$use_smc" == "true" ]]; then
-    smc_label="smc_p${num_particles}"
+    if [[ "$resample_strategy" == "never" ]]; then
+        smc_label="bon_p${num_particles}"
+    elif [[ "$resample_strategy" == "deterministic" ]]; then
+        smc_label="beam_p${num_particles}"
+    else
+        smc_label="smc_p${num_particles}"
+    fi
 else
     smc_label="nosmc"
 fi
@@ -142,6 +154,9 @@ if [[ "$model_type" == "dream" ]]; then
     if [[ -n "$cfg_scale" ]]; then
         model_args="${model_args},cfg_scale=${cfg_scale}"
     fi
+    if [[ -n "$resample_strategy" ]]; then
+        model_args="${model_args},resample_strategy=${resample_strategy}"
+    fi
     
     if [[ "$show_speed" == "true" ]]; then
         model_args="${model_args},show_speed=True"
@@ -173,6 +188,12 @@ else
     model_args="${model_args},use_cache=True,use_smc=${use_smc}"
     if [[ -n "$cfg_scale" ]]; then
         model_args="${model_args},cfg_scale=${cfg_scale}"
+    fi
+    if [[ -n "$resample_strategy" ]]; then
+        model_args="${model_args},resample_strategy=${resample_strategy}"
+    fi
+    if [[ -n "$mcmc_steps" ]]; then
+        model_args="${model_args},mcmc_steps=${mcmc_steps}"
     fi
     
     if [[ "$show_speed" == "true" ]]; then
