@@ -11,6 +11,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Wait for GPUs to be idle
+bash "${SCRIPT_DIR}/wait.sh"
+
 MODELS=("llada1.5" "dream")
 TASKS=("gsm8k" "math500" "mbpp" "humaneval")
 
