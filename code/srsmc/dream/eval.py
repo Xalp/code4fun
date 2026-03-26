@@ -354,6 +354,8 @@ class Dream(LM):
                 from model.generation_utils_block import DreamGenerationMixin
             self.model.diffusion_generate = types.MethodType(DreamGenerationMixin.diffusion_generate, self.model)
             self.model._sample = types.MethodType(DreamGenerationMixin._sample, self.model)
+            if hasattr(DreamGenerationMixin, '_sample_cfg'):
+                self.model._sample_cfg = types.MethodType(DreamGenerationMixin._sample_cfg, self.model)
         else:
             from model.generation_utils import DreamGenerationMixin
             self.model.diffusion_generate = types.MethodType(DreamGenerationMixin.diffusion_generate, self.model)
