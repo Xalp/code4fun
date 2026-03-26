@@ -81,6 +81,7 @@ class Dream(LM):
         dual_cache: Optional[bool] = False,
         save_dir: Optional[str] = None,
         num_particles: Optional[int] = 4,
+        cfg_scale: Optional[float] = 0.0,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -217,6 +218,7 @@ class Dream(LM):
         self.generated_token_num = 0
         self.save_dir = save_dir
         self.num_particles = num_particles
+        self.cfg_scale = float(cfg_scale)
     @property
     def batch_size(self):
         return self.batch_size_per_gpu
@@ -326,7 +328,8 @@ class Dream(LM):
             threshold=self.threshold,
             dual_cache=self.dual_cache,
             resample_freq=self.resample_freq,
-            num_particles=self.num_particles
+            num_particles=self.num_particles,
+            cfg_scale=self.cfg_scale,
         )
 
         # decode

@@ -27,6 +27,7 @@ save="false"
 
 seed=""
 show_speed="false"
+cfg_scale=""
 
 # ===== Argument Parsing =====
 while [[ $# -gt 0 ]]; do
@@ -45,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     --save) save="true"; shift 1 ;;
     --seed) seed="$2"; shift 2 ;;
     --show_speed) show_speed="true"; shift 1 ;;
+    --cfg_scale) cfg_scale="$2"; shift 2 ;;
     *) echo "Error: Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -79,7 +81,9 @@ esac
 
 # ===== Set Output Directory =====
 smc_label=""
-if [[ "$use_smc" == "true" ]]; then
+if [[ -n "$cfg_scale" ]]; then
+    smc_label="cfg${cfg_scale}"
+elif [[ "$use_smc" == "true" ]]; then
     smc_label="smc_p${num_particles}"
 else
     smc_label="nosmc"
@@ -100,7 +104,7 @@ echo "SMC Evaluation Configuration"
 echo "========================================="
 echo "Model: ${model_type} (${model_path})"
 echo "Task: ${task} (${task_name}, ${num_fewshot}-shot)"
-echo "SMC: use_smc=${use_smc}, num_particles=${num_particles}"
+echo "SMC: use_smc=${use_smc}, num_particles=${num_particles}, cfg_scale=${cfg_scale:-none}"
 echo "Gen Config: length=${length}, steps=${steps}, block=${block_length}, temp=${temperature}"
 echo "Output: ${output_dir}"
 echo "========================================="
@@ -135,6 +139,9 @@ if [[ "$model_type" == "dream" ]]; then
     model_args="${model_args},temperature=${temperature},threshold=${threshold}"
     model_args="${model_args},use_cache=true,use_smc=${use_smc},num_particles=${num_particles}"
     model_args="${model_args},alg=confidence_threshold"
+    if [[ -n "$cfg_scale" ]]; then
+        model_args="${model_args},cfg_scale=${cfg_scale}"
+    fi
     
     if [[ "$show_speed" == "true" ]]; then
         model_args="${model_args},show_speed=True"
@@ -164,8 +171,9 @@ else
     model_args="model_path=${model_path},gen_length=${length},steps=${steps},block_length=${block_length}"
     model_args="${model_args},temperature=${temperature},threshold=${threshold}"
     model_args="${model_args},use_cache=True,use_smc=${use_smc}"
-    
-    model_args="${model_args},use_cache=True,use_smc=${use_smc}"
+    if [[ -n "$cfg_scale" ]]; then
+        model_args="${model_args},cfg_scale=${cfg_scale}"
+    fi
     
     if [[ "$show_speed" == "true" ]]; then
         model_args="${model_args},show_speed=True"

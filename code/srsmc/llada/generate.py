@@ -59,7 +59,7 @@ def get_num_transfer_tokens(mask_index, steps):
 
 @ torch.no_grad()
 def generate(model, prompt, steps=128, gen_length=128, block_length=128, temperature=0.,
-             remasking='low_confidence', mask_id=126336, threshold=None, factor=None):
+             remasking='low_confidence', mask_id=126336, threshold=None, factor=None, cfg_scale=0.0):
     '''
     Args:
         model: Mask predictor.
@@ -74,6 +74,7 @@ def generate(model, prompt, steps=128, gen_length=128, block_length=128, tempera
     '''
     x = torch.full((prompt.shape[0], prompt.shape[1] + gen_length), mask_id, dtype=torch.long).to(model.device)
     x[:, :prompt.shape[1]] = prompt.clone()
+    prompt_length = prompt.shape[1]
 
     assert gen_length % block_length == 0
     num_blocks = gen_length // block_length
@@ -83,21 +84,31 @@ def generate(model, prompt, steps=128, gen_length=128, block_length=128, tempera
 
     nfe = 0
     for num_block in range(num_blocks):
-        block_mask_index = (x[:, prompt.shape[1] + num_block * block_length: prompt.shape[1] + (num_block + 1) * block_length] == mask_id)
+        block_mask_index = (x[:, prompt_length + num_block * block_length: prompt_length + (num_block + 1) * block_length] == mask_id)
         num_transfer_tokens = get_num_transfer_tokens(block_mask_index, steps)
         i = 0
         while True:
             nfe += 1
             mask_index = (x == mask_id)
-            logits = model(x).logits
-            mask_index[:, prompt.shape[1] + (num_block + 1) * block_length:] = 0
+            if cfg_scale > 0:
+                # CFG: unconditional pass with prompt masked out
+                un_x = x.clone()
+                un_x[:, :prompt_length] = mask_id
+                x_batch = torch.cat([x, un_x], dim=0)
+                logits_all = model(x_batch).logits
+                logits, un_logits = torch.chunk(logits_all, 2, dim=0)
+                logits = un_logits + (cfg_scale + 1) * (logits - un_logits)
+                nfe += 1  # count the unconditional pass
+            else:
+                logits = model(x).logits
+            mask_index[:, prompt_length + (num_block + 1) * block_length:] = 0
             if factor is None:
                 x0, transfer_index = get_transfer_index(logits, temperature, remasking, mask_index, x, num_transfer_tokens[:, i] if threshold is None else None, threshold)
             else:
                 x0, transfer_index = get_transfer_index_dynamic(logits, temperature, remasking, mask_index, x, None, factor)
             x[transfer_index] = x0[transfer_index]
             i += 1
-            if (x[:, prompt.shape[1] + num_block * block_length: prompt.shape[1] + (num_block + 1) * block_length] == mask_id).sum() == 0:
+            if (x[:, prompt_length + num_block * block_length: prompt_length + (num_block + 1) * block_length] == mask_id).sum() == 0:
                 break
     return x, nfe
 

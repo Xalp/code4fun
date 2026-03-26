@@ -71,6 +71,7 @@ class LLaDAEvalHarness(LM):
         save_dir=None,
         show_speed=False,
         dual_cache=False,
+        cfg_scale=0.0,
         **kwargs,
     ):
         '''
@@ -80,13 +81,13 @@ class LLaDAEvalHarness(LM):
             max_length: the max sequence length.
             batch_size: mini batch size.
             mc_num: Monte Carlo estimation iterations
-            is_check_greedy: For certain metrics like LAMBADA, the evaluation requires the model to verify whether the answer 
+            is_check_greedy: For certain metrics like LAMBADA, the evaluation requires the model to verify whether the answer
                              is generated through greedy sampling conditioned on the prompt (note that this differs from conditional
-                             generation). We implement this verification through the suffix_greedy_prediction() function, which 
-                             returns a True/False judgment used for accuracy calculation. 
-                             When is_check_greedy is set to True, the lm-evaluation-harness library automatically invokes this function. 
-                             However, since none of the metrics in the LLaDA paper (https://arxiv.org/abs/2502.09992) require this functionality, 
-                             we recommend setting is_check_greedy to False. This configuration causes suffix_greedy_prediction() to return False 
+                             generation). We implement this verification through the suffix_greedy_prediction() function, which
+                             returns a True/False judgment used for accuracy calculation.
+                             When is_check_greedy is set to True, the lm-evaluation-harness library automatically invokes this function.
+                             However, since none of the metrics in the LLaDA paper (https://arxiv.org/abs/2502.09992) require this functionality,
+                             we recommend setting is_check_greedy to False. This configuration causes suffix_greedy_prediction() to return False
                              by default, significantly accelerating the evaluation process.
             cfg_scale: Unsupervised classifier-free guidance scale.
         '''
@@ -138,6 +139,7 @@ class LLaDAEvalHarness(LM):
         self.save_dir = save_dir
         self.show_speed = show_speed
         self.dual_cache = dual_cache
+        self.cfg_scale = float(cfg_scale)
     @property
     def rank(self):
         return self._rank
@@ -362,23 +364,27 @@ class LLaDAEvalHarness(LM):
 
                 stop_tokens = req.args[1]['until']
                 input_ids = batched_input_ids
-                if self.use_cache:
+                if self.cfg_scale > 0:
+                    # CFG requires non-cache path for correctness
+                    generated_answer, nfe = generate(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
+                                        temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor, cfg_scale=self.cfg_scale)
+                elif self.use_cache:
                     if self.dual_cache:
-                        generated_answer, nfe = generate_with_dual_cache(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length, 
+                        generated_answer, nfe = generate_with_dual_cache(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
                     else:
                         if self.use_smc:
-                            generated_answer, nfe = generate_with_prefix_cache_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length, 
+                            generated_answer, nfe = generate_with_prefix_cache_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
                         else:
-                            generated_answer, nfe = generate_with_prefix_cache(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length, 
+                            generated_answer, nfe = generate_with_prefix_cache(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
                 else:
                     if self.use_smc:
-                        generated_answer, nfe = generate_with_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length, 
+                        generated_answer, nfe = generate_with_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
                     else:
-                        generated_answer, nfe = generate(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length, 
+                        generated_answer, nfe = generate(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
                 
                 if self.is_instruct and 'task_id' in req.doc and str(req.doc['task_id']).lower().startswith('humaneval'):

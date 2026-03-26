@@ -373,6 +373,7 @@ class DreamGenerationMixin:
         threshold = kwargs.get("threshold", 0.9)
         block_length = kwargs.get("block_length", 32)
         dual_cache = kwargs.get("dual_cache", False)
+        cfg_scale = kwargs.get("cfg_scale", 0.0)
 
         result = self._sample(
             input_ids,
@@ -380,7 +381,8 @@ class DreamGenerationMixin:
             generation_config=generation_config,
             threshold=threshold,
             block_length=block_length,
-            dual_cache=dual_cache
+            dual_cache=dual_cache,
+            cfg_scale=cfg_scale,
         )
         return result
 
@@ -392,9 +394,10 @@ class DreamGenerationMixin:
         threshold: Optional[float] = 0.9,
         block_length: Optional[int] = 32,
         dual_cache: bool = False,
+        cfg_scale: float = 0.0,
     ) -> Union[DreamModelOutput, torch.LongTensor]:
         # init values
-        
+
         output_history = generation_config.output_history
         return_dict_in_generate = generation_config.return_dict_in_generate
         max_length = generation_config.max_length
@@ -411,14 +414,15 @@ class DreamGenerationMixin:
         # pad input_ids to max_length
         x = F.pad(input_ids, (0, max_length - input_ids.shape[1]), value=mask_token_id)
         gen_length = max_length - input_ids.shape[1]
-        
+        prompt_length = input_ids.shape[1]
+
         # Handle block configuration
         if block_length is None:
             block_length = gen_length  # Default: single block (original behavior)
-        
+
         assert gen_length % block_length == 0, f"gen_length ({gen_length}) must be divisible by block_length ({block_length})"
         num_blocks = gen_length // block_length
-        
+
         assert steps % num_blocks == 0, f"steps ({steps}) must be divisible by num_blocks ({num_blocks})"
         steps_per_block = steps // num_blocks
         timesteps = torch.linspace(1, generation_config.eps, steps_per_block + 1, device=x.device)
@@ -438,13 +442,20 @@ class DreamGenerationMixin:
             tok_idx = None
             attention_mask = "full"
 
+        # CFG mode: no caching, full forward pass each step
+        if cfg_scale > 0:
+            return self._sample_cfg(x, attention_mask, tok_idx, prompt_length, gen_length,
+                                     block_length, num_blocks, steps_per_block, timesteps,
+                                     mask_token_id, temperature, top_p, top_k, alg, alg_temp,
+                                     threshold, cfg_scale, return_dict_in_generate, histories)
+
         # Initialize cache for the prompt
         past_key_values = None
 
         # Process each block
         for num_block in range(num_blocks):
-            
-            current_block_start = input_ids.shape[1] + num_block * block_length
+
+            current_block_start = prompt_length + num_block * block_length
             current_block_end = current_block_start + block_length
 
             # update cache
@@ -454,7 +465,7 @@ class DreamGenerationMixin:
             logits = torch.cat([logits[:,:1], logits[:, :-1]], dim=1)
             confidence, x0 = sample_tokens(logits, temperature=temperature, top_p=top_p, top_k=top_k)
             x[:, current_block_start] = x0[:, current_block_start]
-            
+
             # Extract only previous block cache
             if not dual_cache:
                 new_past_key_values = []
@@ -466,7 +477,7 @@ class DreamGenerationMixin:
             else:
                 replace_position = torch.zeros_like(x, dtype=torch.bool)
                 replace_position[:, current_block_start:current_block_end] = 1
-                
+
             i = 1
             while True:
                 # Use cache for generation
@@ -474,21 +485,21 @@ class DreamGenerationMixin:
                     mask_index = (x[:, current_block_start:current_block_end] == mask_token_id)
                 else:
                     mask_index = (x[:, current_block_start:] == mask_token_id)
-                
+
                 # Prepare attention mask for cached generation
                 if attention_mask != "full":
                     # Adjust attention mask for current position
                     current_attention_mask = attention_mask[:, :, :, current_block_start:]
                 else:
                     current_attention_mask = attention_mask
-                
+
                 if dual_cache:
-                    model_output = self(x[:, current_block_start:current_block_end], current_attention_mask, 
-                                    tok_idx[:, current_block_start:current_block_end] if tok_idx is not None else None, 
+                    model_output = self(x[:, current_block_start:current_block_end], current_attention_mask,
+                                    tok_idx[:, current_block_start:current_block_end] if tok_idx is not None else None,
                                     past_key_values=past_key_values, use_cache=True, dual_cache=dual_cache, replace_position=replace_position)
                 else:
-                    model_output = self(x[:, current_block_start:], current_attention_mask, 
-                                    tok_idx[:, current_block_start:] if tok_idx is not None else None, 
+                    model_output = self(x[:, current_block_start:], current_attention_mask,
+                                    tok_idx[:, current_block_start:] if tok_idx is not None else None,
                                     past_key_values=past_key_values, use_cache=True)
                 logits = model_output.logits
                 logits = torch.cat([logits[:,:1], logits[:, :-1]], dim=1)
@@ -567,5 +578,98 @@ class DreamGenerationMixin:
                 sequences=x,
                 history=histories,
             )
+        else:
+            return x
+
+    def _sample_cfg(
+        self, x, attention_mask, tok_idx, prompt_length, gen_length,
+        block_length, num_blocks, steps_per_block, timesteps,
+        mask_token_id, temperature, top_p, top_k, alg, alg_temp,
+        threshold, cfg_scale, return_dict_in_generate, histories,
+    ):
+        """CFG generation without caching — full forward pass each step."""
+
+        def _get_logits_cfg(x_in):
+            un_x = x_in.clone()
+            un_x[:, :prompt_length] = mask_token_id
+            x_batch = torch.cat([x_in, un_x], dim=0)
+            if attention_mask != "full":
+                attn_batch = attention_mask.repeat(2, 1, 1, 1)
+            else:
+                attn_batch = attention_mask
+            tidx_batch = tok_idx.repeat(2, 1) if tok_idx is not None else None
+            logits_all = self(x_batch, attn_batch, tidx_batch).logits
+            logits_all = torch.cat([logits_all[:, :1], logits_all[:, :-1]], dim=1)
+            logits_c, logits_u = torch.chunk(logits_all, 2, dim=0)
+            return logits_u + (cfg_scale + 1) * (logits_c - logits_u)
+
+        for num_block in range(num_blocks):
+            current_block_start = prompt_length + num_block * block_length
+            current_block_end = current_block_start + block_length
+
+            # First step of block
+            logits = _get_logits_cfg(x)
+            confidence, x0 = sample_tokens(logits, temperature=temperature, top_p=top_p, top_k=top_k)
+            x[:, current_block_start] = x0[:, current_block_start]
+
+            i = 1
+            while True:
+                mask_index = (x == mask_token_id)
+                mask_index[:, :current_block_start] = False
+                mask_index[:, current_block_end:] = False
+
+                if alg == 'confidence_threshold':
+                    logits = _get_logits_cfg(x)
+                    mask_logits = logits[mask_index]
+                    confidence, x0 = sample_tokens(mask_logits, temperature=temperature, top_p=top_p, top_k=top_k)
+
+                    full_confidence = torch.full_like(x[:, current_block_start:current_block_end], -torch.inf, dtype=logits.dtype, device=self.device)
+                    x_ = torch.zeros_like(x[:, current_block_start:current_block_end], device=self.device, dtype=torch.long) + mask_token_id
+                    local_mask = mask_index[:, current_block_start:current_block_end]
+                    x_[local_mask] = x0.clone()
+                    full_confidence[local_mask] = confidence
+
+                    current_transfer_tokens = local_mask.sum()
+                    selected_confidence, select_index = torch.topk(full_confidence, current_transfer_tokens)
+                    transfer_index = torch.zeros_like(x_, device=x.device, dtype=torch.bool)
+                    select_index = select_index.to(x.device)
+                    transfer_index[0, select_index[0]] = True
+                    for k in range(1, current_transfer_tokens):
+                        if selected_confidence[0, k] < threshold:
+                            transfer_index[0, select_index[0, k]] = False
+                    x[:, current_block_start:current_block_end][transfer_index] = x_[transfer_index]
+                else:
+                    if i == steps_per_block:
+                        break
+                    t = timesteps[i]
+                    s = timesteps[i + 1]
+                    logits = _get_logits_cfg(x)
+                    mask_logits = logits[mask_index]
+                    confidence, x0 = sample_tokens(mask_logits, temperature, top_p=top_p, top_k=top_k, neg_entropy=True)
+                    num_mask_token = mask_index.sum() / mask_index.shape[0]
+                    number_transfer_tokens = int(num_mask_token * (1 - s / t)) if i < steps_per_block - 1 else int(num_mask_token)
+
+                    full_confidence = torch.full_like(x[:, current_block_start:current_block_end], -torch.inf, device=self.device, dtype=logits.dtype)
+                    local_mask = mask_index[:, current_block_start:current_block_end]
+                    full_confidence[local_mask] = confidence
+
+                    if number_transfer_tokens > 0:
+                        if alg_temp is None or alg_temp == 0:
+                            _, transfer_index = torch.topk(full_confidence, number_transfer_tokens)
+                        else:
+                            full_confidence = full_confidence / alg_temp
+                            full_confidence = F.softmax(full_confidence, dim=-1)
+                            transfer_index = torch.multinomial(full_confidence, num_samples=number_transfer_tokens)
+                        x_ = torch.zeros_like(x[:, current_block_start:current_block_end], device=self.device, dtype=torch.long) + mask_token_id
+                        x_[local_mask] = x0.clone()
+                        row_indices = torch.arange(x.size(0), device=self.device).unsqueeze(1).expand_as(transfer_index)
+                        x[:, current_block_start:current_block_end][row_indices, transfer_index] = x_[row_indices, transfer_index]
+                    i += 1
+
+                if (x[:, current_block_start:current_block_end] == mask_token_id).sum() == 0:
+                    break
+
+        if return_dict_in_generate:
+            return DreamModelOutput(sequences=x, history=histories)
         else:
             return x
