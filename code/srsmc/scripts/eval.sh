@@ -166,10 +166,9 @@ if [[ "$model_type" == "dream" ]]; then
         model_args="${model_args},save_dir=${save_dir}"
     fi
     
+    CMD="accelerate launch eval.py --model dream --tasks ${task_name} --num_fewshot ${num_fewshot}"
     if [[ -n "$seed" ]]; then
-        CMD="accelerate launch --seed ${seed} eval.py --model dream --tasks ${task_name} --num_fewshot ${num_fewshot}"
-    else
-        CMD="accelerate launch eval.py --model dream --tasks ${task_name} --num_fewshot ${num_fewshot}"
+        CMD="${CMD} --seed ${seed}"
     fi
     CMD="${CMD} ${common_args} --model_args \"${model_args}\""
     
@@ -204,10 +203,9 @@ else
         model_args="${model_args},save_dir=${save_dir}"
     fi
     
+    CMD="accelerate launch eval_llada.py --model llada_dist --tasks ${task_name} --num_fewshot ${num_fewshot}"
     if [[ -n "$seed" ]]; then
-        CMD="accelerate launch --seed ${seed} eval_llada.py --model llada_dist --tasks ${task_name} --num_fewshot ${num_fewshot}"
-    else
-        CMD="accelerate launch eval_llada.py --model llada_dist --tasks ${task_name} --num_fewshot ${num_fewshot}"
+        CMD="${CMD} --seed ${seed}"
     fi
     CMD="${CMD} ${common_args} --model_args \"${model_args}\""
     
