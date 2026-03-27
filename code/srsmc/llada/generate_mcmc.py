@@ -47,7 +47,7 @@ def generate_mcmc(model, prompt, steps=128, gen_length=128, block_length=128, te
             mask_index = (x == mask_id)
             logits = model(x).logits
             mask_index[:, block_end:] = 0
-            x0, transfer_index, _ = get_transfer_index(
+            x0, transfer_index = get_transfer_index(
                 logits, temperature, remasking, mask_index, x,
                 num_transfer_tokens[:, i] if threshold is None else None, threshold)
             x[transfer_index] = x0[transfer_index]
