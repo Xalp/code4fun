@@ -220,6 +220,7 @@ class Dream(LM):
         self.num_particles = num_particles
         self.cfg_scale = float(cfg_scale)
         self.resample_strategy = kwargs.get('resample_strategy', 'adaptive')
+        self.mcmc_steps = int(kwargs.get('mcmc_steps', 0))
     @property
     def batch_size(self):
         return self.batch_size_per_gpu
@@ -332,6 +333,7 @@ class Dream(LM):
             num_particles=self.num_particles,
             cfg_scale=self.cfg_scale,
             resample_strategy=self.resample_strategy,
+            mcmc_steps=self.mcmc_steps,
         )
 
         # decode
@@ -358,6 +360,8 @@ class Dream(LM):
             self.model._sample = types.MethodType(DreamGenerationMixin._sample, self.model)
             if hasattr(DreamGenerationMixin, '_sample_cfg'):
                 self.model._sample_cfg = types.MethodType(DreamGenerationMixin._sample_cfg, self.model)
+            if hasattr(DreamGenerationMixin, '_sample_mcmc'):
+                self.model._sample_mcmc = types.MethodType(DreamGenerationMixin._sample_mcmc, self.model)
         else:
             from model.generation_utils import DreamGenerationMixin
             self.model.diffusion_generate = types.MethodType(DreamGenerationMixin.diffusion_generate, self.model)

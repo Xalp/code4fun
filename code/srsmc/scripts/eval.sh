@@ -157,6 +157,9 @@ if [[ "$model_type" == "dream" ]]; then
     if [[ -n "$resample_strategy" ]]; then
         model_args="${model_args},resample_strategy=${resample_strategy}"
     fi
+    if [[ -n "$mcmc_steps" ]]; then
+        model_args="${model_args},mcmc_steps=${mcmc_steps}"
+    fi
     
     if [[ "$show_speed" == "true" ]]; then
         model_args="${model_args},show_speed=True"
