@@ -142,6 +142,10 @@ class LLaDAEvalHarness(LM):
         self.dual_cache = dual_cache
         self.cfg_scale = float(cfg_scale)
         self.resample_strategy = kwargs.get('resample_strategy', 'adaptive')
+        self.resample_freq = int(kwargs.get('resample_freq', 1))
+        self.return_all = kwargs.get('return_all', False)
+        if isinstance(self.return_all, str):
+            self.return_all = self.return_all.lower() in ('true', '1')
         self.mcmc_steps = int(kwargs.get('mcmc_steps', 0))
     @property
     def rank(self):
@@ -383,7 +387,7 @@ class LLaDAEvalHarness(LM):
                         if self.use_smc:
                             generated_answer, nfe = generate_with_prefix_cache_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor,
-                                            resample_strategy=self.resample_strategy)
+                                            resample_strategy=self.resample_strategy, resample_freq=self.resample_freq, return_all=self.return_all)
                         else:
                             generated_answer, nfe = generate_with_prefix_cache(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
@@ -391,7 +395,7 @@ class LLaDAEvalHarness(LM):
                     if self.use_smc:
                         generated_answer, nfe = generate_with_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor,
-                                            resample_strategy=self.resample_strategy)
+                                            resample_strategy=self.resample_strategy, resample_freq=self.resample_freq, return_all=self.return_all)
                     else:
                         generated_answer, nfe = generate(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
@@ -429,8 +433,13 @@ class LLaDAEvalHarness(LM):
             if self.save_dir is not None:
                 # 增量保存新生成的答案
                 with open(save_path, 'a', encoding='utf-8') as f:
-                    for generated_answer in batched_generated_answer:
-                        f.write(json.dumps(generated_answer, ensure_ascii=False) + '\n')
+                    for ga in batched_generated_answer:
+                        f.write(json.dumps(ga, ensure_ascii=False) + '\n')
+
+            # If return_all, we decoded all particles but lm-eval needs 1 answer per request.
+            # Keep only the first (best) answer for lm-eval, rest are saved above.
+            if self.return_all and len(batched_generated_answer) > 1:
+                batched_generated_answer = [batched_generated_answer[0]]
 
             for i in range(len(batched_generated_answer)):
                 print('=' * 20)

@@ -46,7 +46,7 @@ def get_num_transfer_tokens(mask_index, steps):
 @ torch.inference_mode()
 def generate(model, prompt, steps=128, gen_length=128, block_length=128, temperature=0.,
              remasking='low_confidence', mask_id=126336, threshold=None, factor=None, num_particles=4,
-             resample_strategy="adaptive"):
+             resample_strategy="adaptive", resample_freq=1, return_all=False):
     '''
     Args:
         model: Mask predictor.
@@ -106,7 +106,7 @@ def generate(model, prompt, steps=128, gen_length=128, block_length=128, tempera
             # resampling
             ess = 1.0 / (weights.pow(2).sum())
             should_resample = (resample_strategy == "deterministic") or (ess < 0.5 * num_particles)
-            if num_block % 1 == 0 and should_resample:
+            if num_block % resample_freq == 0 and should_resample:
                 if resample_strategy == "deterministic":
                     # Beam search: duplicate the best particle
                     best_idx = torch.argmax(log_w)
@@ -123,13 +123,15 @@ def generate(model, prompt, steps=128, gen_length=128, block_length=128, tempera
         print(f"num_block: {num_block+1}, block length: {block_length}, diffusion steps: {i}, tokens/step: {tps}, num_particles: {num_particles}")
 
     print(logp[:, prompt.shape[1]:].exp().mean(dim=1))
+    if return_all:
+        return x, nfe  # return all particles
     idx = torch.argmax(logp.sum(dim=1))
     return x[idx:idx+1], nfe
 
 @ torch.inference_mode()
 def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, block_length=128, temperature=0.,
              remasking='low_confidence', mask_id=126336, threshold=None, factor=None, num_particles=4,
-             resample_strategy="adaptive"):
+             resample_strategy="adaptive", resample_freq=1):
     '''
     Args:
         model: Mask predictor.
@@ -233,7 +235,7 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
             weights = weights / weights.sum()
             ess = 1.0 / (weights.pow(2).sum())
             should_resample = (resample_strategy == "deterministic") or (ess < 0.5 * num_particles)
-            if num_block % 1 == 0 and should_resample:
+            if num_block % resample_freq == 0 and should_resample:
                 if resample_strategy == "deterministic":
                     best_idx = torch.argmax(log_w)
                     k_idx = best_idx.repeat(num_particles)
@@ -264,6 +266,8 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
         tps = block_length // i # tokens_per_step
         print(f"num_block: {num_block+1}, block length: {block_length}, diffusion steps: {i}, tokens/step: {tps}, num_particles: {num_particles}")
     print(logp[:, prompt.shape[1]:].exp().mean(dim=1))
+    if return_all:
+        return x, nfe  # return all particles
     idx = torch.argmax(logp.sum(dim=1))
     return x[idx:idx+1], nfe
 

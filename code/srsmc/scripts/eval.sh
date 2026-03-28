@@ -29,6 +29,8 @@ seed=""
 show_speed="false"
 cfg_scale=""
 resample_strategy=""
+resample_freq=""
+return_all=""
 mcmc_steps=""
 
 # ===== Argument Parsing =====
@@ -50,6 +52,8 @@ while [[ $# -gt 0 ]]; do
     --show_speed) show_speed="true"; shift 1 ;;
     --cfg_scale) cfg_scale="$2"; shift 2 ;;
     --resample_strategy) resample_strategy="$2"; shift 2 ;;
+    --resample_freq) resample_freq="$2"; shift 2 ;;
+    --return_all) return_all="true"; shift 1 ;;
     --mcmc_steps) mcmc_steps="$2"; shift 2 ;;
     *) echo "Error: Unknown argument: $1"; exit 1 ;;
   esac
@@ -157,6 +161,9 @@ if [[ "$model_type" == "dream" ]]; then
     if [[ -n "$resample_strategy" ]]; then
         model_args="${model_args},resample_strategy=${resample_strategy}"
     fi
+    if [[ -n "$resample_freq" ]]; then
+        model_args="${model_args},resample_freq=${resample_freq}"
+    fi
     if [[ -n "$mcmc_steps" ]]; then
         model_args="${model_args},mcmc_steps=${mcmc_steps}"
     fi
@@ -194,18 +201,24 @@ else
     if [[ -n "$resample_strategy" ]]; then
         model_args="${model_args},resample_strategy=${resample_strategy}"
     fi
+    if [[ -n "$resample_freq" ]]; then
+        model_args="${model_args},resample_freq=${resample_freq}"
+    fi
     if [[ -n "$mcmc_steps" ]]; then
         model_args="${model_args},mcmc_steps=${mcmc_steps}"
     fi
-    
+    if [[ -n "$return_all" ]]; then
+        model_args="${model_args},return_all=True"
+    fi
+
     if [[ "$show_speed" == "true" ]]; then
         model_args="${model_args},show_speed=True"
     fi
-    
+
     if [[ -n "$save_dir" ]]; then
         model_args="${model_args},save_dir=${save_dir}"
     fi
-    
+
     CMD="accelerate launch eval_llada.py --model llada_dist --tasks ${task_name} --num_fewshot ${num_fewshot}"
     if [[ -n "$seed" ]]; then
         CMD="${CMD} --seed ${seed}"
