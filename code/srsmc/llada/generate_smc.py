@@ -7,6 +7,31 @@ from model.modeling_llada import LLaDAModelLM
 import json
 import os
 
+def _compute_weight(logits, x0_logp, transfer_index, weight_type="confidence"):
+    """Compute incremental importance weight for SMC particles.
+    Args:
+        logits: model logits [num_particles, seq_len, vocab_size]
+        x0_logp: log probability of sampled tokens [num_particles, seq_len]
+        transfer_index: boolean mask of transferred tokens [num_particles, seq_len]
+        weight_type: 'confidence' (default), 'entropy', or 'margin'
+    """
+    if weight_type == "confidence":
+        return (x0_logp * transfer_index.float()).sum(dim=1)
+    elif weight_type == "entropy":
+        # Negative entropy: higher = more confident distribution
+        p = F.softmax(logits.float(), dim=-1)
+        neg_entropy = (p * (p + 1e-10).log()).sum(dim=-1)  # [particles, seq_len]
+        return (neg_entropy * transfer_index.float()).sum(dim=1)
+    elif weight_type == "margin":
+        # Log probability margin: top1 - top2
+        p = F.softmax(logits.float(), dim=-1)
+        sorted_p, _ = torch.sort(p, dim=-1, descending=True)
+        margin = (sorted_p[..., 0] - sorted_p[..., 1]).clamp(min=1e-10).log()
+        return (margin * transfer_index.float()).sum(dim=1)
+    else:
+        raise ValueError(f"Unknown weight_type: {weight_type}")
+
+
 def add_gumbel_noise(logits, temperature):
     '''
     The Gumbel max is a method for sampling categorical distributions.
@@ -46,7 +71,7 @@ def get_num_transfer_tokens(mask_index, steps):
 @ torch.inference_mode()
 def generate(model, prompt, steps=128, gen_length=128, block_length=128, temperature=0.,
              remasking='low_confidence', mask_id=126336, threshold=None, factor=None, num_particles=4,
-             resample_strategy="adaptive", resample_freq=1, return_all=False):
+             resample_strategy="adaptive", resample_freq=1, return_all=False, weight_type="confidence"):
     '''
     Args:
         model: Mask predictor.
@@ -93,7 +118,7 @@ def generate(model, prompt, steps=128, gen_length=128, block_length=128, tempera
                 logits, temperature, remasking, mask_index, x, num_transfer_tokens[:, i] if threshold is None else None, threshold)
             x[transfer_index] = x0[transfer_index]
             logp[transfer_index] = x0_logp[transfer_index]
-            log_w = log_w + (x0_logp * transfer_index.float()).sum(dim=1) # weight on transfer tokens
+            log_w = log_w + _compute_weight(logits, x0_logp, transfer_index, weight_type)
             i += 1
             nfe += 1
 
@@ -131,7 +156,7 @@ def generate(model, prompt, steps=128, gen_length=128, block_length=128, tempera
 @ torch.inference_mode()
 def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, block_length=128, temperature=0.,
              remasking='low_confidence', mask_id=126336, threshold=None, factor=None, num_particles=4,
-             resample_strategy="adaptive", resample_freq=1):
+             resample_strategy="adaptive", resample_freq=1, return_all=False, weight_type="confidence"):
     '''
     Args:
         model: Mask predictor.
@@ -184,7 +209,7 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
         x[transfer_index] = x0[transfer_index]
         logp[transfer_index] = x0_logp[transfer_index]
         # weight accumulation
-        log_w = log_w + (x0_logp * transfer_index.float()).sum(dim=1) # weight on transfer tokens
+        log_w = log_w + _compute_weight(output.logits, x0_logp, transfer_index, weight_type)
 
         new_past_key_values = []
         for i in range(len(past_key_values)):
@@ -217,7 +242,7 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
             x[:, current_block_start:][transfer_index] = x0[transfer_index]
             logp[:, current_block_start:][transfer_index] = x0_logp[transfer_index]
             # weighting
-            log_w = log_w + (x0_logp * transfer_index.float()).sum(dim=1) # weight on transfer tokens
+            log_w = log_w + _compute_weight(logits, x0_logp, transfer_index, weight_type)
 
             i += 1
 

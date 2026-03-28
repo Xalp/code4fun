@@ -144,6 +144,7 @@ class LLaDAEvalHarness(LM):
         self.resample_strategy = kwargs.get('resample_strategy', 'adaptive')
         self.resample_freq = int(kwargs.get('resample_freq', 1))
         self.return_all = kwargs.get('return_all', False)
+        self.weight_type = kwargs.get('weight_type', 'confidence')
         if isinstance(self.return_all, str):
             self.return_all = self.return_all.lower() in ('true', '1')
         self.mcmc_steps = int(kwargs.get('mcmc_steps', 0))
@@ -387,7 +388,7 @@ class LLaDAEvalHarness(LM):
                         if self.use_smc:
                             generated_answer, nfe = generate_with_prefix_cache_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor,
-                                            resample_strategy=self.resample_strategy, resample_freq=self.resample_freq, return_all=self.return_all)
+                                            resample_strategy=self.resample_strategy, resample_freq=self.resample_freq, return_all=self.return_all, weight_type=self.weight_type)
                         else:
                             generated_answer, nfe = generate_with_prefix_cache(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)
@@ -395,7 +396,7 @@ class LLaDAEvalHarness(LM):
                     if self.use_smc:
                         generated_answer, nfe = generate_with_smc(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor,
-                                            resample_strategy=self.resample_strategy, resample_freq=self.resample_freq, return_all=self.return_all)
+                                            resample_strategy=self.resample_strategy, resample_freq=self.resample_freq, return_all=self.return_all, weight_type=self.weight_type)
                     else:
                         generated_answer, nfe = generate(self.model, input_ids, steps=self.steps, gen_length=self.gen_length, block_length=self.block_length,
                                             temperature=self.temperature, remasking=self.remasking, mask_id=self.mask_id, threshold=self.threshold, factor=self.factor)

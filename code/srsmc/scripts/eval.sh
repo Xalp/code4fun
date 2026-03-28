@@ -31,6 +31,7 @@ cfg_scale=""
 resample_strategy=""
 resample_freq=""
 return_all=""
+weight_type=""
 mcmc_steps=""
 
 # ===== Argument Parsing =====
@@ -54,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     --resample_strategy) resample_strategy="$2"; shift 2 ;;
     --resample_freq) resample_freq="$2"; shift 2 ;;
     --return_all) return_all="true"; shift 1 ;;
+    --weight_type) weight_type="$2"; shift 2 ;;
     --mcmc_steps) mcmc_steps="$2"; shift 2 ;;
     *) echo "Error: Unknown argument: $1"; exit 1 ;;
   esac
@@ -100,6 +102,9 @@ elif [[ "$use_smc" == "true" ]]; then
         smc_label="beam_p${num_particles}"
     else
         smc_label="smc_p${num_particles}"
+    fi
+    if [[ -n "$weight_type" ]] && [[ "$weight_type" != "confidence" ]]; then
+        smc_label="${smc_label}_${weight_type}"
     fi
 else
     smc_label="nosmc"
@@ -209,6 +214,9 @@ else
     fi
     if [[ -n "$return_all" ]]; then
         model_args="${model_args},return_all=True"
+    fi
+    if [[ -n "$weight_type" ]]; then
+        model_args="${model_args},weight_type=${weight_type}"
     fi
 
     if [[ "$show_speed" == "true" ]]; then

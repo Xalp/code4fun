@@ -48,9 +48,25 @@ for model in "${MODELS[@]}"; do
   done
 done
 
+    # --- Alternative importance weights: entropy ---
+    echo ">>> ${model} / ${task} / smc_p4_entropy"
+    bash "${SCRIPT_DIR}/eval.sh" --model_type "$model" --task "$task" \
+      --use_smc true --num_particles 4 --temperature 1.0 \
+      --weight_type entropy \
+      --output_dir "${OUT}/${model}/${task}/smc_p4_entropy" \
+      $LIMIT_ARG || true
+
+    # --- Alternative importance weights: margin ---
+    echo ">>> ${model} / ${task} / smc_p4_margin"
+    bash "${SCRIPT_DIR}/eval.sh" --model_type "$model" --task "$task" \
+      --use_smc true --num_particles 4 --temperature 1.0 \
+      --weight_type margin \
+      --output_dir "${OUT}/${model}/${task}/smc_p4_margin" \
+      $LIMIT_ARG || true
+
+  done
+done
+
 echo "========================================="
 echo "Done. Results in: ${OUT}/"
-echo ""
-echo "For SMC Pass@4: check saved_generations/ in smc_p4_all dirs"
-echo "  Each question has 4 particle outputs saved."
 echo "========================================="
