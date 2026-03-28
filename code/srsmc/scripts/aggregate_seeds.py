@@ -105,15 +105,15 @@ def compute_metrics(all_seeds, task):
 
             # Check if marked correct by lm-eval
             is_correct = False
-            for key in ['exact_match', 'acc', 'exact_match,strict-match',
-                        'exact_match,flexible-extract', 'exact_match,none']:
+            # Try all known correctness keys
+            for key in ['exact_match', 'acc', 'pass@1', 'pass_at_1',
+                        'exact_match,strict-match', 'exact_match,flexible-extract',
+                        'exact_match,none']:
                 if key in sr:
                     val = sr[key]
                     if isinstance(val, (int, float)) and val > 0:
                         is_correct = True
                         break
-            if not is_correct and 'metrics' in sr and isinstance(sr['metrics'], dict):
-                is_correct = any(v > 0 for v in sr['metrics'].values() if isinstance(v, (int, float)))
 
             correctness.append(is_correct)
             answers.append(str(resp).strip())
