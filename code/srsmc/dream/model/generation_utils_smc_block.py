@@ -35,6 +35,27 @@ from transformers.utils import (
 
 logger = logging.get_logger(__name__)
 
+
+def _dream_compute_weight(logits, confidence, transfer_mask, weight_type="confidence"):
+    """Compute incremental importance weight for Dream SMC.
+    confidence: log-prob of sampled tokens (from sample_tokens).
+    transfer_mask: boolean or index mask of transferred positions.
+    """
+    if weight_type == "confidence":
+        return torch.where(transfer_mask, confidence, torch.zeros_like(confidence)).sum(dim=1)
+    elif weight_type == "entropy":
+        p = F.softmax(logits.float(), dim=-1)
+        neg_entropy = (p * (p + 1e-10).log()).sum(dim=-1)
+        return torch.where(transfer_mask, neg_entropy, torch.zeros_like(neg_entropy)).sum(dim=1)
+    elif weight_type == "margin":
+        p = F.softmax(logits.float(), dim=-1)
+        sorted_p, _ = torch.sort(p, dim=-1, descending=True)
+        margin = (sorted_p[..., 0] - sorted_p[..., 1]).clamp(min=1e-10).log()
+        return torch.where(transfer_mask, margin, torch.zeros_like(margin)).sum(dim=1)
+    else:
+        raise ValueError(f"Unknown weight_type: {weight_type}")
+
+
 def get_num_transfer_tokens(mask_index, steps):
     '''
     In the reverse process, the interval [0, 1] is uniformly discretized into steps intervals.
@@ -376,6 +397,7 @@ class DreamGenerationMixin:
         dual_cache = kwargs.get("dual_cache", False)
         resample_freq = kwargs.get("resample_freq", 1)
         resample_strategy = kwargs.get("resample_strategy", "adaptive")
+        weight_type = kwargs.get("weight_type", "confidence")
 
         result = self._sample(
             input_ids,
@@ -387,6 +409,7 @@ class DreamGenerationMixin:
             resample_freq=resample_freq,
             num_particles=num_particles,
             resample_strategy=resample_strategy,
+            weight_type=weight_type,
         )
         return result
 
@@ -401,6 +424,7 @@ class DreamGenerationMixin:
         resample_freq: Optional[int] = 1,
         num_particles: Optional[int] = 4,
         resample_strategy: str = "adaptive",
+        weight_type: str = "confidence",
     ) -> Union[DreamModelOutput, torch.LongTensor]:
         # init values
         
@@ -470,7 +494,10 @@ class DreamGenerationMixin:
             confidence, x0 = sample_tokens(logits, temperature=temperature, top_p=top_p, top_k=top_k)
             x[:, current_block_start] = x0[:, current_block_start]
             log_p[:, current_block_start] = confidence[:, current_block_start]
-            log_w = log_w + confidence[:, current_block_start]
+            # weight for first token
+            first_tok_mask = torch.zeros_like(x, dtype=torch.bool)
+            first_tok_mask[:, current_block_start] = True
+            log_w = log_w + _dream_compute_weight(logits, confidence, first_tok_mask, weight_type)
             
             # Extract only previous block cache
             if not dual_cache:
@@ -539,7 +566,7 @@ class DreamGenerationMixin:
                     else:
                         x[:, current_block_start:][transfer_index] = x_[transfer_index]
                         log_p[:, current_block_start:][transfer_index] = full_confidence[transfer_index].float()
-                        log_w = log_w + torch.where(transfer_index, full_confidence, 0).sum(dim=1) # weight on transfer tokens
+                        log_w = log_w + _dream_compute_weight(logits, full_confidence, transfer_index, weight_type)
                 else:
                     if i == steps_per_block:
                         break
@@ -576,7 +603,9 @@ class DreamGenerationMixin:
                             x[:, current_block_start:][row_indices, transfer_index] = x_[row_indices,transfer_index]
                             log_p[:, current_block_start:][row_indices, transfer_index] = full_confidence[row_indices, transfer_index].float()
                             # weight accumulation
-                            log_w = log_w + full_confidence[row_indices, transfer_index].sum(dim=1).float() # weight on transfer tokens
+                            idx_mask = torch.zeros_like(full_confidence, dtype=torch.bool)
+                            idx_mask.scatter_(1, transfer_index, True)
+                            log_w = log_w + _dream_compute_weight(logits, full_confidence, idx_mask, weight_type)
                 i += 1
 
                 if (x[:, current_block_start:current_block_end] == mask_token_id).sum() == 0:

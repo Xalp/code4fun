@@ -172,7 +172,10 @@ if [[ "$model_type" == "dream" ]]; then
     if [[ -n "$mcmc_steps" ]]; then
         model_args="${model_args},mcmc_steps=${mcmc_steps}"
     fi
-    
+    if [[ -n "$weight_type" ]]; then
+        model_args="${model_args},weight_type=${weight_type}"
+    fi
+
     if [[ "$show_speed" == "true" ]]; then
         model_args="${model_args},show_speed=True"
     fi

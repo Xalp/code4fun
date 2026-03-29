@@ -220,6 +220,7 @@ class Dream(LM):
         self.num_particles = num_particles
         self.cfg_scale = float(cfg_scale)
         self.resample_strategy = kwargs.get('resample_strategy', 'adaptive')
+        self.weight_type = kwargs.get('weight_type', 'confidence')
         self.mcmc_steps = int(kwargs.get('mcmc_steps', 0))
     @property
     def batch_size(self):
@@ -333,6 +334,7 @@ class Dream(LM):
             num_particles=self.num_particles,
             cfg_scale=self.cfg_scale,
             resample_strategy=self.resample_strategy,
+            weight_type=self.weight_type,
             mcmc_steps=self.mcmc_steps,
         )
 
