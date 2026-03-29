@@ -122,23 +122,39 @@ def generate(model, prompt, steps=128, gen_length=128, block_length=128, tempera
             i += 1
             nfe += 1
 
-        # SMC Resampling
-        if num_particles > 1 and resample_strategy != "never":
+            # Per-step beam: resample after every diffusion step
+            if resample_strategy == "per_step" and num_particles > 1:
+                best_idx = torch.argmax(log_w)
+                k_idx = best_idx.repeat(num_particles)
+                x = x[k_idx]; logp = logp[k_idx]
+                log_w.zero_()
+
+        # SMC Resampling (at block boundary)
+        if num_particles > 1 and resample_strategy not in ("never", "per_step"):
             # weighting
             weights = torch.exp(log_w - log_w.max())
             weights = weights / weights.sum()
+
+            # future_entropy: replace log_w with forward-looking signal
+            if weight_type == "future_entropy" and num_block < num_blocks - 1:
+                next_s = prompt.shape[1] + (num_block + 1) * block_length
+                next_t = next_s + block_length
+                fwd_logits = model(x).logits
+                nfe += 1
+                p = F.softmax(fwd_logits[:, next_s:next_t].float(), dim=-1)
+                neg_ent = (p * (p + 1e-10).log()).sum(dim=-1).sum(dim=1)  # [particles]
+                weights = torch.exp(neg_ent - neg_ent.max())
+                weights = weights / weights.sum()
 
             # resampling
             ess = 1.0 / (weights.pow(2).sum())
             should_resample = (resample_strategy == "deterministic") or (ess < 0.5 * num_particles)
             if num_block % resample_freq == 0 and should_resample:
                 if resample_strategy == "deterministic":
-                    # Beam search: duplicate the best particle
                     best_idx = torch.argmax(log_w)
                     k_idx = best_idx.repeat(num_particles)
                     print(f"Beam select at block {num_block}, best particle: {best_idx.item()}")
                 else:
-                    # SMC: multinomial resampling
                     k_idx = torch.multinomial(weights, num_samples=num_particles, replacement=True).squeeze(-1)
                     print(f"Normal Resampling at block {num_block}, with ess: {ess:.2f}")
                 x = x[k_idx]; logp = logp[k_idx];
@@ -244,6 +260,13 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
             # weighting
             log_w = log_w + _compute_weight(logits, x0_logp, transfer_index, weight_type)
 
+            # Per-step beam: resample after every diffusion step
+            if resample_strategy == "per_step" and num_particles > 1:
+                best_idx = torch.argmax(log_w)
+                k_idx = best_idx.repeat(num_particles)
+                x = x[k_idx]; logp = logp[k_idx]
+                log_w.zero_()
+
             i += 1
 
         if trace_file:
@@ -255,9 +278,21 @@ def generate_with_prefix_cache_smc(model, prompt, steps=128, gen_length=128, blo
         resampled = False
         selected_indices = list(range(num_particles)) # Default identity if no resampling
 
-        if num_particles > 1 and resample_strategy != "never":
+        if num_particles > 1 and resample_strategy not in ("never", "per_step"):
             weights = torch.exp(log_w - log_w.max())
             weights = weights / weights.sum()
+
+            # future_entropy: replace weights with forward-looking signal
+            if weight_type == "future_entropy" and num_block < num_blocks - 1:
+                next_s = prompt.shape[1] + (num_block + 1) * block_length
+                next_t = next_s + block_length
+                fwd_logits = model(x).logits
+                nfe += 1
+                p = F.softmax(fwd_logits[:, next_s:next_t].float(), dim=-1)
+                neg_ent = (p * (p + 1e-10).log()).sum(dim=-1).sum(dim=1)
+                weights = torch.exp(neg_ent - neg_ent.max())
+                weights = weights / weights.sum()
+
             ess = 1.0 / (weights.pow(2).sum())
             should_resample = (resample_strategy == "deterministic") or (ess < 0.5 * num_particles)
             if num_block % resample_freq == 0 and should_resample:

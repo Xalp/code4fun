@@ -100,6 +100,8 @@ elif [[ "$use_smc" == "true" ]]; then
         smc_label="bon_p${num_particles}"
     elif [[ "$resample_strategy" == "deterministic" ]]; then
         smc_label="beam_p${num_particles}"
+    elif [[ "$resample_strategy" == "per_step" ]]; then
+        smc_label="beam_perstep_p${num_particles}"
     else
         smc_label="smc_p${num_particles}"
     fi

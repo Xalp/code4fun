@@ -606,15 +606,36 @@ class DreamGenerationMixin:
                             idx_mask = torch.zeros_like(full_confidence, dtype=torch.bool)
                             idx_mask.scatter_(1, transfer_index, True)
                             log_w = log_w + _dream_compute_weight(logits, full_confidence, idx_mask, weight_type)
+
+                # Per-step beam: resample after every diffusion step
+                if resample_strategy == "per_step" and num_particles > 1:
+                    best_idx = torch.argmax(log_w)
+                    k_idx = best_idx.repeat(num_particles)
+                    x = x[k_idx]; log_p = log_p[k_idx]
+                    log_w.zero_()
+
                 i += 1
 
                 if (x[:, current_block_start:current_block_end] == mask_token_id).sum() == 0:
                     break
 
-            # SMC Resampling
-            if num_particles > 1 and resample_strategy != "never":
+            # SMC Resampling (at block boundary)
+            if num_particles > 1 and resample_strategy not in ("never", "per_step"):
                 weights = torch.exp(log_w - log_w.max())
                 weights = weights / weights.sum()
+
+                # future_entropy: use entropy of next block predictions
+                if weight_type == "future_entropy" and num_block < num_blocks - 1:
+                    next_s = input_ids.shape[1] + (num_block + 1) * block_length
+                    next_t = next_s + block_length
+                    if next_t <= x.shape[1]:
+                        fwd_logits = self(x, attention_mask, tok_idx).logits
+                        fwd_logits = torch.cat([fwd_logits[:, :1], fwd_logits[:, :-1]], dim=1)
+                        p = F.softmax(fwd_logits[:, next_s:next_t].float(), dim=-1)
+                        neg_ent = (p * (p + 1e-10).log()).sum(dim=-1).sum(dim=1)
+                        weights = torch.exp(neg_ent - neg_ent.max())
+                        weights = weights / weights.sum()
+
                 ess = 1.0 / (weights.pow(2).sum())
                 should_resample = (resample_strategy == "deterministic") or (num_block % resample_freq == 0 and ess < 0.5 * num_particles)
                 if should_resample:
