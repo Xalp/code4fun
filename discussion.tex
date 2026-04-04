@@ -1,0 +1,106 @@
+%%%%%%%% Discussion: follow-up responses %%%%%%%%%%%%%%%%%
+
+\documentclass{article}
+
+% Recommended, but optional, packages for figures and better typesetting:
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs} % for professional tables
+
+% hyperref makes hyperlinks in the resulting PDF.
+\usepackage[pagebackref,breaklinks,colorlinks=true]{hyperref}
+\input{math_commands}
+
+% Attempt to make hyperref and algorithmic work together better:
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+
+\usepackage{icml2026}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage{xcolor}%
+\usepackage{color}%
+\usepackage{enumitem}
+\usepackage{booktabs} % For professional quality lines
+\usepackage{multirow} % For grouping rows
+\usepackage{tcolorbox}
+\usepackage{pifont}
+\usepackage{graphicx}   % \resizebox
+
+\usepackage{makecell}
+
+\definecolor{darkblue}{rgb}{0,0.08,0.6} 
+\newcommand{\review}[1]{{\color{darkblue} \textit{#1}}}
+
+\newcommand{\todo}[1]{{\color{red} \textit{#1} (TODO!)}}
+
+\icmltitlerunning{Discussion: self-rewarding SMC}
+
+\begin{document}
+
+\onecolumn
+
+\paragraph{Discussion: follow-up response to Reviewer Vu8J (Q1)}
+
+\review{How are Best-of-N and MCMC implemented here? Why does majority vote show the highest accuracy on GSM8K but the worst on MATH?}
+
+\vspace{0.5em}
+
+\noindent\textbf{Best-of-N (BoN).} BoN generates $N$ independent particles in parallel using the same diffusion denoising process as SR-SMC, but with resampling disabled. Each particle accumulates a weight based on the log-probability of its sampled tokens. After generation, the particle with the highest cumulative log-probability is selected as the final output.
+
+\vspace{0.5em}
+
+\noindent\textbf{MCMC (Gibbs Sampling).} MCMC first generates a complete sequence using the standard diffusion process. Then, for each refinement step, it randomly selects one block, re-masks it entirely, and regenerates it conditioned on the current content of all other blocks. This is essentially a block Gibbs sampler that iteratively improves generation quality by revising blocks in light of the full sequence context.
+
+\vspace{0.5em}
+
+\noindent\textbf{Why majority voting performs well on GSM8K but poorly on MATH.} As shown in Table~\ref{tab:vote_analysis}, majority voting's effectiveness depends critically on answer agreement across seeds. On GSM8K, 61.2\% of questions receive identical answers from all 4 seeds, making majority voting reliable. On MATH, however, 42.2\% of questions have all 4 answers completely different, reducing majority voting to a random pick on those questions. This is because MATH problems involve more complex symbolic reasoning and produce answers in diverse formats, making it much harder for independent runs to converge to the same answer.
+
+
+\begin{table}[ht]
+  \caption{Answer agreement across 4 seeds: proportion of questions where all seeds agree vs. all differ.}
+  \label{tab:vote_analysis}
+  \centering
+    \begin{tabular}{l cc}
+      \toprule
+      Pattern & GSM8K & MATH \\
+      \midrule
+      All 4 agree       & 61.2\% & 16.6\% \\
+      All 4 differ      &  5.2\% & 42.2\% \\
+      \bottomrule
+    \end{tabular}
+\end{table}
+
+
+\paragraph{Discussion: follow-up response to Reviewer Vu8J (Q2)}
+
+\review{Can author also show the scalability result at least 8 particles in the reasoning benchmarks? Self-consistency (majority voting) is good at scale while SMC shows saturated performance in other domains and i expect reasoning task will show very different behavior than Gen.\ PPL experiment (which author provided).}
+
+\vspace{0.5em}
+
+We scale to $N=8, 16, 32$ particles on the MATH benchmark (500 problems) using Dream-7B. For Best-of-N, Majority Voting, and Pass@$N$, we generate 32 independent samples per question and use the first $N$ for each metric. For SR-SMC, we run with $N$ particles and adaptive ESS-based resampling. Results are shown in Table~\ref{tab:scaling}.
+
+\begin{table}[ht]
+  \caption{Scaling with number of particles $N$ on MATH (Dream-7B, 4-shot). All methods use the same compute budget at each $N$. Pass@$N$ is the oracle upper bound.}
+  \label{tab:scaling}
+  \centering
+    \begin{tabular}{l ccc}
+      \toprule
+      Method & $N=8$ & $N=16$ & $N=32$ \\
+      \midrule
+      Pass@$N$ (upper bound) & 71.00 & 78.00 & 82.20 \\
+      \midrule
+      Majority Voting   & 43.20 & 43.40 & 45.00 \\
+      Best-of-$N$       & 45.20 & 45.60 & 45.20 \\
+      SR-SMC            & \textbf{47.00} & \textbf{46.40} & \textbf{47.40} \\
+      \bottomrule
+    \end{tabular}
+\end{table}
+
+\noindent\textbf{Key observations.} (1) SR-SMC consistently outperforms both Best-of-$N$ and Majority Voting at all scales, confirming that trajectory-level resampling provides a stronger selection mechanism than either post-hoc scoring (BoN) or answer agreement (MajVote). (2) Majority Voting scales slowly on MATH---from 43.2\% at $N=8$ to 45.0\% at $N=32$---consistent with the high answer disagreement rate (42.2\% of questions have all answers different, as shown in Table~\ref{tab:vote_analysis}). (3) The oracle Pass@$N$ grows substantially (71.0\% $\rightarrow$ 82.2\%), indicating that correct solutions \emph{exist} among the particles, but the challenge is \emph{selection}. SR-SMC's resampling mechanism addresses this gap more effectively than BoN or MajVote, achieving 47.4\% at $N=32$ compared to BoN's 45.2\%.
+
+
+\end{document}
