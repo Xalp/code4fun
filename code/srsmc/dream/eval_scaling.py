@@ -29,7 +29,6 @@ def generate_samples(model, tokenizer, input_ids, attn_mask, num_samples, batch_
 
     for batch_start in range(0, num_samples, batch_size):
         bs = min(batch_size, num_samples - batch_start)
-        # Expand input for this batch of particles
         batch_ids = input_ids.repeat(bs, 1)
         batch_mask = attn_mask.repeat(bs, 1) if attn_mask is not None else None
 
@@ -44,33 +43,20 @@ def generate_samples(model, tokenizer, input_ids, attn_mask, num_samples, batch_
                 temperature=temperature,
                 alg='confidence_threshold',
                 threshold=threshold,
-                num_particles=bs,    # treat as independent particles
+                num_particles=bs,
                 resample_strategy="never",  # no resampling = independent
                 block_length=32,
             )
 
-        # output.sequences: [bs, seq_len]
-        seqs = output.sequences
+        # resample_strategy="never" returns all particles + logp in history
+        seqs = output.sequences      # [bs, seq_len]
+        log_p = output.history        # [bs, seq_len] tensor of per-token logp
+
         for i in range(bs):
             gen_text = tokenizer.decode(seqs[i, prompt_len:].tolist())
             gen_text = gen_text.split(tokenizer.eos_token)[0]
             all_texts.append(gen_text)
-
-        # Compute logp for each sample by re-scoring
-        with torch.inference_mode():
-            logits = model(seqs).logits
-            logits = torch.cat([logits[:, :1], logits[:, :-1]], dim=1)
-            log_probs = torch.log_softmax(logits.float(), dim=-1)
-            # Gather log prob of actual tokens in generated region
-            gen_tokens = seqs[:, prompt_len:]  # [bs, gen_len]
-            gen_logp = torch.gather(log_probs[:, prompt_len:], -1,
-                                     gen_tokens.unsqueeze(-1)).squeeze(-1)  # [bs, gen_len]
-            # Mask out pad/mask tokens
-            mask_token_id = model.config.mask_token_id
-            valid = (gen_tokens != mask_token_id) & (gen_tokens != tokenizer.eos_token_id) & (gen_tokens != tokenizer.pad_token_id)
-            for i in range(bs):
-                lp = gen_logp[i][valid[i]].sum().item()
-                all_logps.append(lp)
+            all_logps.append(log_p[i, prompt_len:].sum().item())
 
     return all_texts, all_logps
 

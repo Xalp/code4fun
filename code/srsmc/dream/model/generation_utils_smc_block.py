@@ -652,6 +652,12 @@ class DreamGenerationMixin:
             tps = block_length // i # tokens_per_step
             print(f"num_block: {num_block+1}, block length: {block_length}, diffusion steps: {i}, tokens/step: {tps}, num_particles: {num_particles}")
 
+        if resample_strategy == "never":
+            # Return all particles + logp for BoN/Pass@K evaluation
+            if return_dict_in_generate:
+                return DreamModelOutput(sequences=x, history=log_p)
+            else:
+                return x, log_p
         idx = torch.argmax(log_p.sum(dim=1))
         x = x[idx:idx+1]
         if return_dict_in_generate:
