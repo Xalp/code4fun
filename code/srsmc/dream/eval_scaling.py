@@ -29,13 +29,11 @@ def generate_samples(model, tokenizer, input_ids, attn_mask, num_samples, batch_
 
     for batch_start in range(0, num_samples, batch_size):
         bs = min(batch_size, num_samples - batch_start)
-        batch_ids = input_ids.repeat(bs, 1)
-        batch_mask = attn_mask.repeat(bs, 1) if attn_mask is not None else None
-
+        # Don't repeat here — diffusion_generate does _expand_inputs_for_generation internally
         with torch.inference_mode():
             output = model.diffusion_generate(
-                batch_ids,
-                attention_mask=batch_mask,
+                input_ids,
+                attention_mask=attn_mask,
                 max_new_tokens=max_new_tokens,
                 output_history=False,
                 return_dict_in_generate=True,
@@ -44,7 +42,7 @@ def generate_samples(model, tokenizer, input_ids, attn_mask, num_samples, batch_
                 alg='confidence_threshold',
                 threshold=threshold,
                 num_particles=bs,
-                resample_strategy="never",  # no resampling = independent
+                resample_strategy="never",
                 block_length=32,
             )
 
