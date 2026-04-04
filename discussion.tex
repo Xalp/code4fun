@@ -81,26 +81,27 @@
 
 \vspace{0.5em}
 
-We scale to $N=8, 16, 32$ particles on the MATH benchmark (500 problems) using Dream-7B. For Best-of-N, Majority Voting, and Pass@$N$, we generate 32 independent samples per question and use the first $N$ for each metric. For SR-SMC, we run with $N$ particles and adaptive ESS-based resampling. Results are shown in Table~\ref{tab:scaling}.
+We scale from $N=4$ to $N=32$ particles on the MATH benchmark (500 problems) using Dream-7B. For Best-of-N, Majority Voting, and Pass@$N$, we generate 32 independent samples per question and use the first $N$ for each metric. For SR-SMC, we run with $N$ particles and adaptive ESS-based resampling. Results are shown in Table~\ref{tab:scaling}.
 
 \begin{table}[ht]
   \caption{Scaling with number of particles $N$ on MATH (Dream-7B, 4-shot). All methods use the same compute budget at each $N$. Pass@$N$ is the oracle upper bound.}
   \label{tab:scaling}
   \centering
-    \begin{tabular}{l ccc}
+    \begin{tabular}{l cccc}
       \toprule
-      Method & $N=8$ & $N=16$ & $N=32$ \\
+      Method & $N=4$ & $N=8$ & $N=16$ & $N=32$ \\
       \midrule
-      Pass@$N$ (upper bound) & 71.00 & 78.00 & 82.20 \\
+      Pass@$N$ (upper bound) & 55.80 & 71.00 & 78.00 & 82.20 \\
       \midrule
-      Majority Voting   & 43.20 & 43.40 & 45.00 \\
-      Best-of-$N$       & 45.20 & 45.60 & 45.20 \\
-      SR-SMC            & \textbf{47.00} & \textbf{46.40} & \textbf{47.40} \\
+      Majority Voting   & 37.60 & 43.20 & 43.40 & 45.00 \\
+      Best-of-$N$       & 44.60 & 45.20 & 45.60 & 45.20 \\
+      MCMC              & 44.20 & -- & -- & -- \\
+      SR-SMC            & \textbf{45.40} & \textbf{47.00} & \textbf{46.40} & \textbf{47.40} \\
       \bottomrule
     \end{tabular}
 \end{table}
 
-\noindent\textbf{Key observations.} (1) SR-SMC consistently outperforms both Best-of-$N$ and Majority Voting at all scales, confirming that trajectory-level resampling provides a stronger selection mechanism than either post-hoc scoring (BoN) or answer agreement (MajVote). (2) Majority Voting scales slowly on MATH---from 43.2\% at $N=8$ to 45.0\% at $N=32$---consistent with the high answer disagreement rate (42.2\% of questions have all answers different, as shown in Table~\ref{tab:vote_analysis}). (3) The oracle Pass@$N$ grows substantially (71.0\% $\rightarrow$ 82.2\%), indicating that correct solutions \emph{exist} among the particles, but the challenge is \emph{selection}. SR-SMC's resampling mechanism addresses this gap more effectively than BoN or MajVote, achieving 47.4\% at $N=32$ compared to BoN's 45.2\%.
+\noindent\textbf{Key observations.} (1) SR-SMC consistently outperforms all compute-matched baselines across all scales. Even at $N=4$, SR-SMC (45.4\%) already surpasses BoN (44.6\%), MCMC (44.2\%), and Majority Voting (37.6\%), and this advantage is maintained as $N$ increases---reaching 47.4\% at $N=32$ vs.\ BoN's 45.2\% and MajVote's 45.0\%. (2) Majority Voting scales slowly on MATH---from 37.6\% at $N=4$ to 45.0\% at $N=32$---consistent with the high answer disagreement rate (42.2\% of questions have all answers different, as shown in Table~\ref{tab:vote_analysis}). Despite scaling, MajVote never catches up to SR-SMC. (3) Best-of-$N$ saturates quickly: performance plateaus around 45\% from $N=4$ to $N=32$, suggesting that the model's self-scoring signal alone is insufficient for further improvement. (4) The oracle Pass@$N$ grows substantially (55.8\% $\rightarrow$ 82.2\%), indicating that correct solutions \emph{exist} among the particles but the challenge is \emph{selection}. SR-SMC's resampling mechanism addresses this gap most effectively by pruning low-quality trajectories \emph{during} generation rather than \emph{after}.
 
 
 \end{document}
