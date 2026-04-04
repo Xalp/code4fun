@@ -1,11 +1,10 @@
 """
-Distributed SMC evaluation on MATH for Dream-7B.
+Distributed SMC evaluation on MATH-500 for Dream-7B, using lm-eval for scoring.
 Launch: torchrun --nproc_per_node=8 eval_math_distributed.py [--mode smc|bon] [--local_particles 8]
 """
 import argparse
 import json
 import os
-import re
 import torch
 import torch.distributed as dist
 from tqdm import tqdm
@@ -14,26 +13,44 @@ from model.configuration_dream import DreamConfig
 from model.modeling_dream import DreamModel
 from generate_smc_distributed import generate_distributed_smc
 
-
-def extract_answer(text):
-    match = re.findall(r'\\boxed\{([^}]*)\}', text)
-    if match:
-        return match[-1].strip()
-    match = re.search(r'####\s*(.+)', text)
-    if match:
-        return match.group(1).strip()
-    nums = re.findall(r'-?\d+\.?\d*', text)
-    return nums[-1] if nums else text.strip()
+# Use lm-eval's task for prompt formatting and scoring
+from lm_eval import tasks as lm_tasks
+from lm_eval.api.task import Task
 
 
-def check_math_answer(pred, target):
-    pred = pred.strip().rstrip('.')
-    target = target.strip().rstrip('.')
-    if pred == target:
-        return True
+def get_task_and_docs():
+    """Load minerva_math500 task via lm-eval."""
+    tm = lm_tasks.TaskManager()
+    task_dict = lm_tasks.get_task_dict(['minerva_math500'], tm)
+    task = list(task_dict.values())[0]
+    docs = list(task.test_docs())
+    return task, docs
+
+
+def format_prompt(task, doc, tokenizer, n_shot=4):
+    """Use lm-eval's fewshot + chat template to build prompt."""
+    # Get fewshot context + question
+    ctx = task.fewshot_context(doc, num_fewshot=n_shot)
+    messages = [{"role": "user", "content": ctx}]
+    chat_text = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+    return chat_text
+
+
+def score_response(task, doc, response_text):
+    """Use lm-eval's process_results to score a response."""
+    # lm-eval expects the result in a specific format
+    # For generate_until tasks, it's the generated string
     try:
-        return abs(float(pred) - float(target)) < 1e-6
-    except:
+        results = task.process_results(doc, [response_text])
+        # results is a dict like {'exact_match': 0 or 1, 'math_verify': 0 or 1, ...}
+        # Use math_verify if available, else exact_match
+        if 'math_verify' in results:
+            return results['math_verify'] > 0
+        if 'exact_match' in results:
+            return results['exact_match'] > 0
+        return any(v > 0 for v in results.values() if isinstance(v, (int, float)))
+    except Exception as e:
+        print(f"Scoring error: {e}")
         return False
 
 
@@ -62,7 +79,7 @@ def main():
 
     if rank == 0:
         print(f"=== Dream-7B Distributed SMC ===")
-        print(f"Mode: {args.mode}, {world_size} GPUs × {args.local_particles} = {total_particles} particles")
+        print(f"Mode: {args.mode}, {world_size} GPUs x {args.local_particles} = {total_particles} particles")
 
     # Load model
     model_path = "Dream-org/Dream-v0-Instruct-7B"
@@ -70,37 +87,25 @@ def main():
                                         trust_remote_code=True, device_map={'': device}).eval()
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
-    # Load MATH
-    from datasets import load_dataset
-    ds = load_dataset("hendrycks/competition_mathematics", split="test", trust_remote_code=True)
+    # Load task and docs via lm-eval
+    task, docs = get_task_and_docs()
     if args.limit:
-        ds = ds.select(range(min(args.limit, len(ds))))
-
-    train_ds = load_dataset("hendrycks/competition_mathematics", split="train", trust_remote_code=True)
-    few_shot_examples = [train_ds[i] for i in range(args.n_shot)]
+        docs = docs[:args.limit]
 
     results = []
     correct_smc = 0
     correct_any = 0
     total = 0
 
-    for idx in tqdm(range(len(ds)), disable=(rank != 0)):
-        item = ds[idx]
-        question = item['problem']
-        target = item['solution']
-        target_answer = extract_answer(target)
+    for idx in tqdm(range(len(docs)), disable=(rank != 0)):
+        doc = docs[idx]
 
-        # Build prompt
-        prompt_parts = []
-        for ex in few_shot_examples[:args.n_shot]:
-            prompt_parts.append(f"Problem: {ex['problem']}\nSolution: {ex['solution']}")
-        prompt_parts.append(f"Problem: {question}\nSolution:")
-        prompt_text = "\n\n".join(prompt_parts)
-        messages = [{"role": "user", "content": prompt_text}]
-        chat_text = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-        input_ids = tokenizer(chat_text, return_tensors='pt').input_ids.to(device)
+        # Format prompt using lm-eval
+        prompt_text = format_prompt(task, doc, tokenizer, args.n_shot)
+        input_ids = tokenizer(prompt_text, return_tensors='pt').input_ids.to(device)
         attn_mask = input_ids.ne(tokenizer.pad_token_id).to(device)
 
+        # Distributed SMC generation
         all_x, all_logp = generate_distributed_smc(
             model, input_ids, attention_mask=attn_mask,
             steps=steps, max_new_tokens=args.max_new_tokens,
@@ -111,16 +116,24 @@ def main():
         if rank == 0:
             total += 1
             particle_results = []
+
             for p in range(all_x.shape[0]):
-                gen_text = tokenizer.decode(all_x[p, input_ids.shape[1]:].tolist()).split(tokenizer.eos_token)[0]
-                pred_answer = extract_answer(gen_text)
-                is_correct = check_math_answer(pred_answer, target_answer)
+                gen_text = tokenizer.decode(all_x[p, input_ids.shape[1]:].tolist())
+                # Truncate at eos
+                gen_text = gen_text.split(tokenizer.eos_token)[0]
+                # Also truncate at stop sequences if task defines them
+                for stop in task.config.generation_kwargs.get('until', []):
+                    if stop in gen_text:
+                        gen_text = gen_text.split(stop)[0]
+
                 p_logp = all_logp[p].sum().item()
+                is_correct = score_response(task, doc, gen_text)
                 particle_results.append({
                     'particle': p, 'logp': p_logp,
-                    'answer': pred_answer, 'correct': is_correct,
+                    'correct': is_correct, 'text': gen_text[:300],
                 })
 
+            # SMC/BoN: pick particle with highest logp
             best_idx = max(range(len(particle_results)), key=lambda i: particle_results[i]['logp'])
             smc_correct = particle_results[best_idx]['correct']
             any_correct = any(pr['correct'] for pr in particle_results)
@@ -129,13 +142,12 @@ def main():
             correct_any += any_correct
 
             results.append({
-                'idx': idx, 'target': target_answer,
-                'smc_correct': smc_correct, 'any_correct': any_correct,
-                'particles': particle_results,
+                'idx': idx, 'smc_correct': smc_correct,
+                'any_correct': any_correct, 'particles': particle_results,
             })
 
             if total % 50 == 0:
-                print(f"[{total}/{len(ds)}] SMC/BoN={correct_smc/total*100:.1f}% "
+                print(f"[{total}/{len(docs)}] SMC/BoN={correct_smc/total*100:.1f}% "
                       f"Pass@{total_particles}={correct_any/total*100:.1f}%")
 
         dist.barrier()
@@ -148,14 +160,15 @@ def main():
         print(f"Pass@{total_particles}:    {correct_any/total*100:.2f}%")
 
         os.makedirs(args.output_dir, exist_ok=True)
-        with open(os.path.join(args.output_dir, f'{args.mode}_{total_particles}p.json'), 'w') as f:
+        out_file = os.path.join(args.output_dir, f'{args.mode}_{total_particles}p.json')
+        with open(out_file, 'w') as f:
             json.dump({
                 'mode': args.mode, 'total_particles': total_particles,
                 'smc_bon_accuracy': correct_smc / total * 100,
                 'pass_at_n': correct_any / total * 100,
                 'results': results,
             }, f, indent=2, ensure_ascii=False)
-        print(f"Saved to {args.output_dir}")
+        print(f"Saved to {out_file}")
 
     dist.destroy_process_group()
 
